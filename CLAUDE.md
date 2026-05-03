@@ -62,11 +62,11 @@ Or `fs.appendFileSync` in Node (uses O_APPEND under the hood — atomic for sub-
 
 This applies to chat files only. The repo's source code (`bin/`, `lib/`, etc.) is normal — Edit those freely.
 
-### `corrwait` self-wakes are a known wart
+### `corrwait` filters self-content from wake triggers
 
-If you append a message and an *already-running* `corrwait` is waiting, it'll wake on your own append (cursor was at your previous message, your new one is "past cursor"). Currently corrwait doesn't filter self-content from wake triggers. Workaround: stop the running corrwait before appending, then start a new one. Or just ignore self-wakes (the JSON's `wakeLines` will only contain `[HH:MM yourname]` lines you wrote).
+When `corrwait` is running on behalf of agent X, lines authored by X are skipped from wake triggers — both `[HH:MM <X>] ...` flat lines and `## Round N — <X> →` round headers. So if you append a new message while a stale `corrwait` is still blocked, it won't spuriously wake on your own line.
 
-This is fixable — filter `wakeLines` against the agent's own author name before computing `woke`. Marked as TODO.
+Foreign-author lines and human comments (`**💬 Human ...`) still wake normally. The agent name comes from `corrwait`'s envoak/`--as` identity — same source as the cursor logic.
 
 ### Polling, not native fsevents
 
@@ -132,9 +132,7 @@ If you're an agent in a Claude Code session, joining a chat:
 
 ## Known limitations / TODO
 
-- `corrwait` wakes on agent's own appends if a stale corrwait is running (filter self-content)
-- No git repo / LICENSE / formal test suite
 - No multi-machine bridge for the artisan-hub viewer (it watches `~/Dev/treebird-internal/collab/`, not `~/treebird-shared/collab/treebird-chat/` — symlinks break chokidar's change events on the viewer side)
 - Concurrent-write collisions on long messages (>4096 bytes can interleave) — practically rare but real
-- No mentions / addressing — every message wakes every listening agent
+- No mentions / addressing — every message wakes every listening agent (planned: SPEC_notifications.md in the private birdchat repo)
 - No threading

@@ -118,7 +118,9 @@ async function main() {
   };
 
   // Catchup: if there's already pending wake-worthy content, fire immediately.
-  const initial = diffSinceBaseline(filePath, baseline, endWord);
+  // Pass `agent` so self-authored lines never trigger wake (filters self-noise
+  // when a stale corrwait was running while this agent appended).
+  const initial = diffSinceBaseline(filePath, baseline, endWord, agent);
   if (initial.endViaWord) {
     return finish(EXIT.END, 'END', {
       source: 'end-word',
@@ -164,7 +166,7 @@ async function main() {
       return finish(EXIT.END, 'END', { source: 'sidecar' });
     }
 
-    const diff = diffSinceBaseline(filePath, baseline, endWord);
+    const diff = diffSinceBaseline(filePath, baseline, endWord, agent);
 
     if (diff.endViaWord) {
       clearTimeout(timer);

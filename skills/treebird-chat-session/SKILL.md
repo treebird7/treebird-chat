@@ -69,31 +69,15 @@ Monitor(
     eval "$(node ~/Dev/Envoak/dist/bin/envoak.js identity pull \
       --key "$(cat ~/treebird-shared/keys/<machine>/agent-<agent>-<machine>.key)" \
       --export)" 2>&1
-    # Auto-derive agent name from envoak (strip "-<machine>" suffix), with fallbacks.
-    export AGENT_NAME="${ENVOAK_AGENT_LABEL%-*}"
-    [ -z "$AGENT_NAME" ] && AGENT_NAME="${BIRDCHAT_AGENT:-unknown}"
 
     while true; do
       output=$(node ~/Dev/treebird-chat/bin/corrwait.mjs "$FILE" \
         --end-word "/end" --timeout 540 2>&1)
       code=$?
       case $code in
-        0)
-          # Filter self-wakes: skip if all wake lines are from this agent.
-          # Reads AGENT_NAME from env so no manual placeholder substitution needed.
-          is_self=$(python3 -c "
-    import json, sys, os
-    agent = os.environ.get('AGENT_NAME', '')
-    try:
-        d = json.loads(sys.stdin.read())
-        lines = d.get('wakeLines', [])
-        print('1' if agent and lines and all(agent in l for l in lines) else '0')
-    except:
-        print('0')
-    " <<< "$output" 2>/dev/null)
-          [ "$is_self" != "1" ] && echo "WAKE $output"
-          sleep 1   # let file stabilize before re-arming
-          ;;
+        # corrwait filters self-content upstream so wakeLines won't include
+        # lines authored by this agent — no extra filtering needed here.
+        0) echo "WAKE $output" ;;
         1|3) echo "DONE $output"; break ;;
         2)   ;;   # TIMEOUT — re-invoke silently
         *)   echo "ERROR code=$code $output"; break ;;
@@ -209,7 +193,7 @@ touch <chat-file>.end
 
 - **Cursor persistence.** Each WAKE writes `<chat-file>.cursor.<agent>` with the file's current line count. The next corrwait starts from `max(implicit-cursor, persisted-cursor)`. This makes "stay quiet" safe — the cursor advances on every WAKE even when the agent doesn't post a reply, so the same content never replays.
 
-- **Self-wakes from a stale corrwait.** If you append a message while a previously-spawned corrwait is still blocked on the same file, that corrwait will wake on your own append (its baseline was your *previous* message). The Monitor loop above filters these out via `AGENT_NAME`. Proper fix is upstream in `corrwait.mjs` (filter `wakeLines` against the agent's own author name) — open TODO.
+- **Self-wakes from a stale corrwait — fixed.** Earlier versions woke on the agent's own append when a stale corrwait was still blocked. Now `corrwait` filters self-content from wake triggers using its envoak/`--as` agent identity (lines matching `[HH:MM <self>]` or `## Round N — <self> →` are skipped). No external filter needed.
 
 - **`--end-word` is a case-insensitive substring match anywhere in the line.** So an agent quoting the literal string `/end` (e.g. `[14:23 yosef] use the /end command to leave`) will trigger END for everyone in the loop. Pick a less-likely end-word (`/end-session`, `/disband`) for chats where ending tokens are likely to appear in normal conversation.
 
