@@ -6,10 +6,6 @@
 
 ## Higher-leverage / smaller scope
 
-### Filter self-content from `corrwait` wake triggers
-**Why:** Stale corrwait instances wake on the agent's own appends. Currently worked-around in the `treebird-chat-session` skill via a Python filter on `wakeLines`. Should be upstream in `corrwait.mjs` so every consumer benefits.
-**Sketch:** In `lib/watcher.mjs#diffSinceBaseline`, drop wake-worthy lines whose author matches the running agent. ~5 lines.
-
 ### `@mention` notification hook (UserPromptSubmit)
 **Why:** Agents not currently in a corrwait loop can't be pulled into a chat. The hook lifts that constraint — they get a system reminder on the next prompt when @mentioned, no Monitor loop required. Closes the parallelisation gap noted at the end of the 2026-05-03 session.
 **Spec:** `birdchat:SPEC_notifications.md` (private repo, mirror of treebird-chat with internal docs).
@@ -103,3 +99,4 @@
 - Three repos published: `treebird-chat` (public), `birdchat` (private specs), `smalltoak` (public)
 - `treebird-chat-session` and `consortium` skills + template
 - Timestamp preservation fix in bridge (was clobbering local-time `[HH:MM]` with smalltoak UTC)
+- Self-content filter in `corrwait` wake triggers — agent's own lines (`[HH:MM <self>] ...` and `## Round N — <self> →`) no longer wake the loop. Skill workaround retired.
