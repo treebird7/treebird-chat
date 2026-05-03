@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runBridge } from '../lib/bridge.mjs';
+import { createSmalltoakTransport } from '../lib/smalltoak-transport.mjs';
 import { encodeLine } from '../lib/message-codec.mjs';
 
 function sleep(ms) {
@@ -144,6 +145,16 @@ class FakeTransport {
   }
 }
 
+function jsonResponse(payload, { status = 200 } = {}) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async json() {
+      return structuredClone(payload);
+    },
+  };
+}
+
 function startBridge({ archive, transport, cursorStore, chatId = 'chat' }) {
   const controller = new AbortController();
   const promise = runBridge({
@@ -196,6 +207,51 @@ test('bridge dedups local echoes and appends remote messages once', async (t) =>
   assert.equal(
     archive.lines.filter((line) => line === '[12:34 bob] remote hi').length,
     1
+  );
+});
+
+test('bridge preserves remote [HH:MM] from line text when smalltoak ts disagrees', async (t) => {
+  const archive = new FakeArchive();
+  const cursorStore = new MemoryCursorAdapter();
+  const transport = createSmalltoakTransport({
+    baseUrl: 'http://smalltoak.test',
+    sender: 'bridge-local',
+    fetchImpl: async (input, init = {}) => {
+      const url = String(input);
+      if (init.method === 'POST') {
+        throw new Error(`unexpected POST to ${url}`);
+      }
+
+      return jsonResponse([
+        {
+          id: 1,
+          from: 'bridge-m5',
+          to: 'chat',
+          text: '[17:08 yosef] hi from m5',
+          ts: '2026-05-03T14:08:00Z',
+        },
+      ]);
+    },
+  });
+  const bridge = startBridge({ archive, transport, cursorStore });
+
+  t.after(async () => {
+    bridge.controller.abort();
+    await bridge.promise;
+  });
+
+  await waitFor(
+    () => archive.lines.includes('[17:08 yosef] hi from m5'),
+    { message: 'remote line was not appended with original [HH:MM]' }
+  );
+
+  assert.equal(
+    archive.lines.filter((line) => line === '[17:08 yosef] hi from m5').length,
+    1
+  );
+  assert.equal(
+    archive.lines.includes('[14:08 yosef] hi from m5'),
+    false
   );
 });
 
@@ -284,7 +340,7 @@ test('bridge ignores malformed file lines', async (t) => {
     await bridge.promise;
   });
 
-  archive.appendLocal('this is not a flat treebird-chat line');
+  archive.appendLocal('this is not a flat birdchat line');
 
   await waitFor(
     async () => (await cursorStore.load('chat')).lastFileLine === 1,
