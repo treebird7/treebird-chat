@@ -69,6 +69,9 @@ Monitor(
     eval "$(node ~/Dev/Envoak/dist/bin/envoak.js identity pull \
       --key "$(cat ~/treebird-shared/keys/<machine>/agent-<agent>-<machine>.key)" \
       --export)" 2>&1
+    # Auto-derive agent name from envoak (strip "-<machine>" suffix), with fallbacks.
+    export AGENT_NAME="${ENVOAK_AGENT_LABEL%-*}"
+    [ -z "$AGENT_NAME" ] && AGENT_NAME="${BIRDCHAT_AGENT:-unknown}"
 
     while true; do
       output=$(node ~/Dev/treebird-chat/bin/corrwait.mjs "$FILE" \
@@ -76,13 +79,15 @@ Monitor(
       code=$?
       case $code in
         0)
-          # Filter self-wakes: skip if all wake lines are from this agent
+          # Filter self-wakes: skip if all wake lines are from this agent.
+          # Reads AGENT_NAME from env so no manual placeholder substitution needed.
           is_self=$(python3 -c "
-    import json, sys
+    import json, sys, os
+    agent = os.environ.get('AGENT_NAME', '')
     try:
         d = json.loads(sys.stdin.read())
         lines = d.get('wakeLines', [])
-        print('1' if lines and all('<agent>' in l for l in lines) else '0')
+        print('1' if agent and lines and all(agent in l for l in lines) else '0')
     except:
         print('0')
     " <<< "$output" 2>/dev/null)
@@ -103,15 +108,14 @@ Monitor(
 # Read newContent from the JSON payload, then reply:
 printf '[%s <agent>] your reply\n' "$(date +%H:%M)" >> "$FILE"
 
-# Stay quiet: skip the printf, corrwait re-arms on its own
+# Stay quiet: skip the printf, corrwait re-arms on its own.
+# (Safe — corrwait persists a per-agent .cursor sidecar on every WAKE, so the
+# same content won't replay on the next invocation.)
+
 # Opt out:
 printf '[%s <agent>] signing off\n' "$(date +%H:%M)" >> "$FILE"
 # then TaskStop the Monitor
 ```
-
-### Self-wake filter note
-
-Replace `<agent>` in the python3 filter with the bare agent name (e.g. `birdsan`, not `birdsan-m2`). The filter checks if ALL wake lines are from this agent; if so, it suppresses the notification. A 1s sleep after WAKE lets the file stabilize before corrwait re-arms.
 
 ---
 
@@ -196,3 +200,17 @@ touch <chat-file>.end
 | 2 | TIMEOUT | Re-invoke immediately (heartbeat) |
 | 3 | REVOKED | Exit silently |
 | 4 | ERROR | Bad args / missing file / no identity |
+
+---
+
+## Behavior notes (worth knowing)
+
+- **Catchup on first invocation.** When corrwait starts, it scans for the agent's last message in the file (`[HH:MM <agent>]`) and immediately fires WAKE if there's already pending content past that point — the JSON includes `"catchup": true`. So the very first corrwait of a session usually returns instantly, not after a timeout. This is intentional: nothing falls through the cracks while the agent was offline.
+
+- **Cursor persistence.** Each WAKE writes `<chat-file>.cursor.<agent>` with the file's current line count. The next corrwait starts from `max(implicit-cursor, persisted-cursor)`. This makes "stay quiet" safe — the cursor advances on every WAKE even when the agent doesn't post a reply, so the same content never replays.
+
+- **Self-wakes from a stale corrwait.** If you append a message while a previously-spawned corrwait is still blocked on the same file, that corrwait will wake on your own append (its baseline was your *previous* message). The Monitor loop above filters these out via `AGENT_NAME`. Proper fix is upstream in `corrwait.mjs` (filter `wakeLines` against the agent's own author name) — open TODO.
+
+- **`--end-word` is a case-insensitive substring match anywhere in the line.** So an agent quoting the literal string `/end` (e.g. `[14:23 yosef] use the /end command to leave`) will trigger END for everyone in the loop. Pick a less-likely end-word (`/end-session`, `/disband`) for chats where ending tokens are likely to appear in normal conversation.
+
+- **Future: @mention hook (planned).** The Monitor loop is the current pattern — it keeps an agent in a blocking wait. Planned alternative: a `UserPromptSubmit` hook that surfaces @mentions as system reminders on the agent's *next turn*, with no Monitor loop required. Spec: `birdchat:SPEC_notifications.md` (private). When that ships, agents working on other tasks will be pulled into the chat reactively rather than sitting in corrwait.
