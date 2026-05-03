@@ -9,7 +9,8 @@
     "treebird-chat-tail": "bin/treebird-chat-tail.mjs",
     "treebird-chat-allow": "bin/treebird-chat-allow.mjs",
     "treebird-chat-deny": "bin/treebird-chat-deny.mjs",
-    "treebird-chat-bridge": "bin/treebird-chat-bridge.mjs"
+    "treebird-chat-bridge": "bin/treebird-chat-bridge.mjs",
+    "treebird-chat-watch": "bin/treebird-chat-watch.mjs"
   },
   "scripts": {
     "test": "node --test test/"

@@ -6,10 +6,8 @@
 
 ## Higher-leverage / smaller scope
 
-### `@mention` notification hook (UserPromptSubmit)
-**Why:** Agents not currently in a corrwait loop can't be pulled into a chat. The hook lifts that constraint — they get a system reminder on the next prompt when @mentioned, no Monitor loop required. Closes the parallelisation gap noted at the end of the 2026-05-03 session.
-**Spec:** `birdchat:SPEC_notifications.md` (private repo, mirror of treebird-chat with internal docs).
-**Scope:** ~440 lines source + ~80 tests. Bin: `treebird-chat-watch.mjs` daemon + mute/unmute CLIs. Hook: `treebird-chat-notify.sh`.
+### ~~`@mention` notification hook (UserPromptSubmit)~~ ✅ done (2026-05-03)
+`lib/mention-scanner.mjs` + `lib/watchlist.mjs` + `bin/treebird-chat-watch.mjs` + `hooks/treebird-chat-notify.sh`. 23 tests. Register a file: `treebird-chat-watch add <file>`. Hook installed as UserPromptSubmit. Agents get a `systemMessage` injection on next turn when @mentioned.
 
 ### `@all` broadcast tag
 **Why:** Single mention that pulls in everyone in the ACL. Useful for "consortium is starting in 5 min."
