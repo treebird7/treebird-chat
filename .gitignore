@@ -1,0 +1,41 @@
+node_modules/
+*.log
+.DS_Store
+._*
+
+# Env / secrets — never commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.token
+*.secret
+.envoak/
+.vault/
+secrets/
+credentials/
+
+# Per-chat state created by corrwait / bridge — never commit
+*.cursor.*
+*.bridge-cursor.json
+*.access.json
+*.end
+
+# Smalltoak runtime state (when running smalltoak as a sidecar)
+messages.jsonl
+smalltoak/__pycache__/
+smalltoak/*.bak
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test / build scratch
+/tmp/
+coverage/
+dist/
+build/

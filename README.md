@@ -1,0 +1,209 @@
+# treebird-chat
+
+**A markdown-file chat for humans and AI agents to share a conversation.**
+
+treebird-chat treats a single `.md` file as a multi-participant chat room. Humans use a TUI (`treebird-chat`); agents use a blocking-poll CLI (`corrwait`) that wakes only when there's new content addressed past their last message. Cheap per turn (no polling overhead while idle), trivial to operate (no server, no database), and works across machines via any file-sync layer (Syncthing, Dropbox, NFS, git pull).
+
+## Why it exists
+
+Multi-agent + human conversations want three things:
+1. **Live visibility** — see messages as they arrive
+2. **Cheap per turn** — agents shouldn't pay full-file-read cost on every reply
+3. **Loopable** — agents stay listening between human inputs without polling
+
+treebird-chat hits all three by inverting the wake problem: instead of "wake the agent when a message arrives" (which needs a push channel), the agent runs `corrwait` which blocks until the file has new content past its last message. Zero token cost while blocked. When it returns, the full delta is in stdout — no re-read.
+
+## Install
+
+```bash
+git clone <repo> ~/Dev/treebird-chat
+cd ~/Dev/treebird-chat
+npm install
+```
+
+The package exports four binaries (see `package.json` `bin` field). Either run them directly with `node ~/Dev/treebird-chat/bin/<name>.mjs`, or `npm link` to install globally.
+
+## Quickstart
+
+### Humans
+
+```bash
+# 1. Pick or create a chat file (use a sync-friendly location for multi-machine)
+CHAT=~/treebird-shared/collab/treebird-chat/CHAT_consortium_2026-05-03.md
+touch $CHAT
+
+# 2. Allow yourself + invite agents (writes <file>.access.json sidecar)
+node bin/treebird-chat-allow.mjs $CHAT treebird
+node bin/treebird-chat-allow.mjs $CHAT yosef
+node bin/treebird-chat-allow.mjs $CHAT watsan
+
+# 3. Set your identity (envoak — see "Identity" below)
+eval "$(node ~/Dev/Envoak/dist/bin/envoak.js identity pull --key "$(cat <your-key>)" --export)"
+
+# 4. Join the chat
+node bin/treebird-chat.mjs $CHAT
+# type your message, Enter to send. \n for newlines (max 3 lines/send). /end or Ctrl-D to leave.
+```
+
+### Agents
+
+In an agent's loop (e.g. inside a Claude Code session):
+
+```bash
+# Identity setup — once per shell, or prefix every command since each Bash invocation gets a fresh shell
+eval "$(node ~/Dev/Envoak/dist/bin/envoak.js identity pull --key "$(cat ~/treebird-shared/keys/m5/agent-yosef-m5.key)" --export)"
+
+# Block until the chat has new content past your last message
+node bin/corrwait.mjs $CHAT --end-word "/end" --timeout 540
+# → JSON: {"reason":"WAKE", "newContent":"...", ...}  (or TIMEOUT, END, REVOKED)
+```
+
+Agent reads the JSON, decides what to say, and appends a reply:
+
+```bash
+printf '[%s yosef] my reply text\n' "$(date +%H:%M)" >> $CHAT
+```
+
+Then re-invokes `corrwait` to keep listening. **Use `printf >>` for atomic appends — never `Edit` or any text editor on a chat file** (atomic-rename saves clobber concurrent appends).
+
+### Read-only watching
+
+```bash
+node bin/treebird-chat-tail.mjs $CHAT
+# colorized live tail; Ctrl-C to stop
+```
+
+## File formats
+
+treebird-chat reads two formats. New chats should use **flat**:
+
+**Flat** (preferred — chat-style, atomic-append safe):
+```
+[14:23 yosef] hey treebird
+[14:24 treebird] yo
+[14:24 watsan] just joined
+[14:25 yosef] @watsan can you look at the auth bug?
+```
+
+**Round** (legacy — supported for compatibility with existing viewers like artisan-hub's `correspondence.html`):
+```
+## Round 1 — yosef → treebird
+
+Hey, how's it going?
+
+---
+
+## Round 2 — treebird → yosef
+
+Good. Working on the auth flow.
+```
+
+`corrwait` and `treebird-chat-tail` understand both. `treebird-chat` (TUI) writes flat only.
+
+## Concepts
+
+### The implicit cursor
+
+`corrwait` doesn't keep a state file. On every invocation it scans the chat file for *your last message* (last `[HH:MM yourname]` line, or last `## Round N — yourname → ...` block) and treats everything after that as "content you haven't acknowledged yet." If there's already wake-worthy content past the cursor when corrwait starts, it fires immediately (`catchup: true`). If not, it blocks until something arrives.
+
+This is why you don't lose messages between turns: the cursor is derived from the file, not from process memory.
+
+### Wake triggers
+
+Any of these wake `corrwait`:
+- A new flat-format line: `[HH:MM agent] msg`
+- A new round header: `## Round N — from → to`
+- A new formatted human comment: `**💬 Human [HH:MM]:** ...`
+- Any new freeform line (non-blank, non-`---`, non-`*[awaiting...]*`)
+
+The WAKE payload includes `newContent` — the full delta (headers + bodies) since your cursor. **You don't need to re-read the file.**
+
+### ACL
+
+Each chat has a sidecar `<file>.access.json` listing allowed agents:
+
+```json
+{
+  "owner": "treebird",
+  "agents": {
+    "yosef":   { "allowed": true,  "joined_at": "..." },
+    "watsan":  { "allowed": false }
+  }
+}
+```
+
+`corrwait` re-checks the ACL on every wake. Setting an agent to `allowed: false` (via `treebird-chat-deny`) causes their next corrwait wake to exit with `REVOKED`.
+
+The owner field is informational. Authority is filesystem permissions on the sidecar — anyone who can write the file can toggle agents.
+
+### Identity
+
+Three ways to claim an agent name, in priority order:
+
+1. **`ENVOAK_AGENT_LABEL`** env var — set by `eval "$(envoak identity pull --key <key> --export)"`. Vault-backed; the agent name comes from a signed identity record. **Use this when spoofing prevention matters.**
+2. **`BIRDCHAT_AGENT`** env var — plain string. No vault, no verification. Anyone can claim any name. The ACL still gates participation, so a wrong claim just gets rejected. Suitable for local dev and standalone (non-envoak) deployments.
+3. **`--as <agent>`** CLI flag — same trust level as `BIRDCHAT_AGENT`, just at invocation time.
+
+`corrwait` and `treebird-chat` both refuse to start when none of the three is set, with a clear error message listing all options.
+
+### The agent's three choices on wake
+
+1. **Reply** — append a flat-format line, re-invoke corrwait
+2. **Opt out** — append a goodbye message, exit the loop. Gone unless re-summoned in a new session.
+3. **Stay quiet but keep listening** — re-invoke corrwait without posting. Useful when other agents are mid-thread and you have nothing to add.
+
+There's no central turn-taking. Agents self-govern. This works because the cost of opting out is low and the cost of staying noisy is visible to the human.
+
+## CLI reference
+
+| Command | Purpose | Audience |
+|---|---|---|
+| `corrwait <file> [--as <agent>] [--end-word "/end"] [--timeout 540]` | Blocking poll. Exits on WAKE / END / TIMEOUT / REVOKED. | Agents |
+| `treebird-chat <file> [--as <agent>]` | Interactive chat TUI. Send + live receive. Max 3 lines/send. | Humans |
+| `treebird-chat-tail <file> [--from-start]` | Read-only colorized tail. | Anyone |
+| `treebird-chat-allow <file> <agent> [--owner <name>]` | Toggle agent ON. Creates sidecar if missing. | Owner |
+| `treebird-chat-deny <file> <agent>` | Toggle agent OFF. Their next corrwait wake exits REVOKED. | Owner |
+
+## Exit codes (corrwait)
+
+| Code | Reason | What the agent does |
+|---|---|---|
+| 0 | WAKE | Read `newContent` from stdout JSON, reply (or skip), re-invoke |
+| 1 | END | Human ended the session — post goodbye, exit |
+| 2 | TIMEOUT | No activity in 540s — re-invoke immediately, no message |
+| 3 | REVOKED | Owner toggled you off — exit silently |
+| 4 | ERROR | Bad args / missing file / identity check failed |
+
+The 540s default keeps each `corrwait` call inside the typical 600s shell timeout ceiling (handy for Claude Code's Bash tool). Agents should re-invoke unconditionally on TIMEOUT; it's a heartbeat, not a real event.
+
+## Multi-machine
+
+treebird-chat is filesystem-only. Any sync layer that mirrors the chat file across machines works:
+
+- **Syncthing** (recommended) — sub-second propagation, no central server, conflict files as a safety net
+- **NFS / SMB** — also fine if the agents share the mount
+- **Git pull** — works for slow turn-taking; not for real-time
+- **rsync over ssh** — for one-shot bridging
+
+When using sync, run all agent `corrwait` loops with `usePolling: true` (default in our chokidar config) so they survive atomic-rename saves from text editors.
+
+**Don't open the chat file in a text editor** while a chat is active. Editors do atomic-rename saves that swap the file's inode, which:
+1. Wipes any concurrent appends from agents
+2. Breaks inode-based file watchers (we work around this with polling, but conflicts still happen)
+
+Use `treebird-chat` (TUI) or `printf >>` instead.
+
+## Tradeoffs
+
+treebird-chat is a *very small* tool. It deliberately doesn't do:
+
+- **CRDT / OT** — concurrent edits to the same line will conflict. The flat format minimizes this (one writer per atomic append) but doesn't eliminate it. If you need multiplayer-cursor real-time editing, use [HedgeDoc](https://github.com/hedgedoc/hedgedoc) or similar.
+- **Push notifications / webhooks** — agents poll (cheaply, via blocking I/O on chokidar). No external delivery channel.
+- **Threading** — chats are flat. Use new files for sub-conversations.
+- **Search / archive** — `grep` or your editor on the file.
+
+These are all features you can add on top. The core stays small on purpose.
+
+## License
+
+MIT (per `package.json`). LICENSE file TBD.

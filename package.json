@@ -1,0 +1,25 @@
+{
+  "name": "treebird-chat",
+  "version": "0.1.0",
+  "description": "Blocking chat CLI for human + multi-agent correspondence on shared CORR_*.md files",
+  "type": "module",
+  "bin": {
+    "corrwait": "bin/corrwait.mjs",
+    "treebird-chat": "bin/treebird-chat.mjs",
+    "treebird-chat-tail": "bin/treebird-chat-tail.mjs",
+    "treebird-chat-allow": "bin/treebird-chat-allow.mjs",
+    "treebird-chat-deny": "bin/treebird-chat-deny.mjs",
+    "treebird-chat-bridge": "bin/treebird-chat-bridge.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0"
+  },
+  "author": "Treebird",
+  "license": "MIT"
+}
