@@ -10,7 +10,9 @@
     "treebird-chat-allow": "bin/treebird-chat-allow.mjs",
     "treebird-chat-deny": "bin/treebird-chat-deny.mjs",
     "treebird-chat-bridge": "bin/treebird-chat-bridge.mjs",
-    "treebird-chat-watch": "bin/treebird-chat-watch.mjs"
+    "treebird-chat-watch": "bin/treebird-chat-watch.mjs",
+    "treebird-chat-session": "bin/treebird-chat-session.mjs",
+    "gemma-bridge": "bin/gemma-bridge.mjs"
   },
   "scripts": {
     "test": "node --test test/"
