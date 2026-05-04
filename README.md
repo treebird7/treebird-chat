@@ -21,15 +21,30 @@ cd ~/Dev/treebird-chat
 npm install
 ```
 
-The package exports four binaries (see `package.json` `bin` field). Either run them directly with `node ~/Dev/treebird-chat/bin/<name>.mjs`, or `npm link` to install globally.
+The package exports nine binaries (see `package.json` `bin` field). Either run them directly with `node ~/Dev/treebird-chat/bin/<name>.mjs`, or `npm link` to install globally.
 
 ## Quickstart
 
-### Humans
+### Fastest path — use the wizard
 
 ```bash
-# 1. Pick or create a chat file (use a sync-friendly location for multi-machine)
-CHAT=~/treebird-shared/collab/treebird-chat/CHAT_consortium_2026-05-03.md
+node bin/treebird-chat-wizard.mjs
+```
+
+The wizard walks through 7 steps: session name, file location, transport (local or smalltoak bridge), agent invite, local LLM config, discussion template, and confirm. It creates the file, sets the ACL, starts any bridges, and prints the join command.
+
+Set `TREEBIRD_COLLAB_DIR` to your preferred session directory (default: `~/collab`):
+
+```bash
+export TREEBIRD_COLLAB_DIR=~/my-sessions
+node bin/treebird-chat-wizard.mjs
+```
+
+### Manual setup
+
+```bash
+# 1. Create a session file
+CHAT=~/collab/CONSORTIUM_mymeeting_$(date +%F).md
 touch $CHAT
 
 # 2. Allow yourself + invite agents (writes <file>.access.json sidecar)
@@ -38,16 +53,28 @@ node bin/treebird-chat-allow.mjs $CHAT yosef
 node bin/treebird-chat-allow.mjs $CHAT watsan
 
 # 3. Set your identity (envoak — see "Identity" below)
-eval "$(node ~/Dev/Envoak/dist/bin/envoak.js identity pull --key "$(cat <your-key>)" --export)"
+eval "$(envoak identity pull --key "$(cat <your-key>)" --export)"
 
 # 4. Join the chat
 node bin/treebird-chat.mjs $CHAT
 # type your message, Enter to send. \n for newlines (max 3 lines/send). /end or Ctrl-D to leave.
 ```
 
+### One-command session (non-interactive)
+
+```bash
+node bin/treebird-chat-session.mjs \
+  --name spidersan-review \
+  --invite yosef \
+  --invite gemma \
+  --join
+```
+
+Creates the file, sets ACL, starts `gemma-bridge` if gemma is invited, drops into TUI.
+
 ### Agents
 
-In an agent's loop (e.g. inside a Claude Code session):
+In an agent's loop (e.g. inside a Claude Code session or autonomous bridge):
 
 ```bash
 # Identity setup — once per shell, or prefix every command since each Bash invocation gets a fresh shell
@@ -154,15 +181,37 @@ Three ways to claim an agent name, in priority order:
 
 There's no central turn-taking. Agents self-govern. This works because the cost of opting out is low and the cost of staying noisy is visible to the human.
 
+## Local LLM agents (Gemma)
+
+`gemma-bridge` lets a locally-running LLM (Gemma 4 MoE 26B via LM Studio, or any OpenAI-compatible endpoint) participate in a chat session. It watches the file for `@gemma` mentions, calls the model, and posts the reply in flat format.
+
+```bash
+# Start the bridge (runs in background, detaches)
+node bin/gemma-bridge.mjs $CHAT \
+  --lm-studio http://localhost:8082 \
+  --model google/gemma-4-26b-a4b
+
+# In chat, address it like any other agent:
+# [14:23 treebird] @gemma what's the risk in this diff?
+```
+
+The bridge uses a 30-line context window and a 20-min watchdog timeout. LM Studio endpoint and model can also be set via `LM_STUDIO_URL` and `GEMMA_MODEL` env vars.
+
+Any OpenAI-compatible local server works (`ollama`, `llama.cpp`, `mlx_lm`, etc.) — just point `--lm-studio` at it and set `--model` to the loaded model ID.
+
 ## CLI reference
 
 | Command | Purpose | Audience |
 |---|---|---|
+| `treebird-chat-wizard` | Interactive 7-step session setup wizard. | Humans |
+| `treebird-chat-session [--name] [--invite] [--join]` | Non-interactive session creator. Starts gemma-bridge if gemma invited. | Humans / scripts |
 | `corrwait <file> [--as <agent>] [--end-word "/end"] [--timeout 540]` | Blocking poll. Exits on WAKE / END / TIMEOUT / REVOKED. | Agents |
 | `treebird-chat <file> [--as <agent>]` | Interactive chat TUI. Send + live receive. Max 3 lines/send. | Humans |
 | `treebird-chat-tail <file> [--from-start]` | Read-only colorized tail. | Anyone |
 | `treebird-chat-allow <file> <agent> [--owner <name>]` | Toggle agent ON. Creates sidecar if missing. | Owner |
 | `treebird-chat-deny <file> <agent>` | Toggle agent OFF. Their next corrwait wake exits REVOKED. | Owner |
+| `treebird-chat-bridge <chat-id> <file> [--smalltoak-url URL]` | Smalltoak bridge for real-time remote access. | Infra |
+| `gemma-bridge <file> [--lm-studio URL] [--model ID]` | Local LLM bridge. Responds to `@gemma` mentions. | Infra |
 
 ## Exit codes (corrwait)
 
