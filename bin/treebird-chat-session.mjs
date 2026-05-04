@@ -8,7 +8,7 @@
 //   treebird-chat-session --join                   # create + open TUI immediately
 //   treebird-chat-session --dir /path/to/dir       # override default location
 //
-// Default dir: ~/treebird-shared/collab
+// Default dir: $TREEBIRD_COLLAB_DIR or ~/collab
 // File name:   CONSORTIUM_<name>_<YYYY-MM-DD>.md
 // Owner:       treebird (override with --owner)
 //
@@ -23,7 +23,9 @@ const __dirname  = dirname(fileURLToPath(import.meta.url));
 const ALLOW_BIN  = resolve(__dirname, 'treebird-chat-allow.mjs');
 const CHAT_BIN   = resolve(__dirname, 'treebird-chat.mjs');
 const GEMMA_BIN  = resolve(__dirname, 'gemma-bridge.mjs');
-const DEFAULT_DIR = resolve(process.env.HOME, 'treebird-shared/collab');
+const DEFAULT_DIR = process.env.TREEBIRD_COLLAB_DIR
+  ? resolve(process.env.TREEBIRD_COLLAB_DIR)
+  : resolve(process.env.HOME, 'collab');
 
 // ── Args ──────────────────────────────────────────────────────────────────────
 

@@ -22,7 +22,9 @@ const CHAT_BIN   = resolve(__dirname, 'treebird-chat.mjs');
 const GEMMA_BIN  = resolve(__dirname, 'gemma-bridge.mjs');
 const BRIDGE_BIN = resolve(__dirname, 'treebird-chat-bridge.mjs');
 
-const DEFAULT_DIR = resolve(process.env.HOME, 'treebird-shared/collab');
+const DEFAULT_DIR = process.env.TREEBIRD_COLLAB_DIR
+  ? resolve(process.env.TREEBIRD_COLLAB_DIR)
+  : resolve(process.env.HOME, 'collab');
 
 // ── Terminal helpers ───────────────────────────────────────────────────────────
 
