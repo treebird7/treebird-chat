@@ -12,7 +12,8 @@
     "treebird-chat-bridge": "bin/treebird-chat-bridge.mjs",
     "treebird-chat-watch": "bin/treebird-chat-watch.mjs",
     "treebird-chat-session": "bin/treebird-chat-session.mjs",
-    "gemma-bridge": "bin/gemma-bridge.mjs"
+    "gemma-bridge": "bin/gemma-bridge.mjs",
+    "treebird-chat-wizard": "bin/treebird-chat-wizard.mjs"
   },
   "scripts": {
     "test": "node --test test/"
