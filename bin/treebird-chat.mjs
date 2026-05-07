@@ -104,6 +104,9 @@ const onChange = () => {
     const lines = text.split('\n');
     // Last element may be partial; only print complete lines.
     for (const line of lines.slice(0, -1)) printLine(line);
+  }).catch(err => {
+    process.stderr.write(`[tui] tail read error: ${err.message}\n`);
+    setTimeout(onChange, 250); // retry after short backoff
   });
 };
 

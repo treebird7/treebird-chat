@@ -186,11 +186,23 @@ async function main() {
         log(`LM Studio error: ${err.message}`);
         appendFileSync(filePath, `[${nowHHMM()} ${agent}] (unavailable — ${err.message})\n`);
       }
+      continue;
     }
+
+    log(`unexpected corrwait reason: ${result.reason} — continuing`);
   }
 }
 
-main().catch(e => {
-  process.stderr.write(`gemma-bridge fatal: ${e.stack || e.message}\n`);
-  process.exit(1);
-});
+async function supervisor() {
+  while (true) {
+    try {
+      await main();
+      log('bridge exited normally');
+      break;
+    } catch (e) {
+      log(`bridge crashed: ${e.stack || e.message} — restarting in 5s`);
+      await new Promise(r => setTimeout(r, 5_000));
+    }
+  }
+}
+supervisor();
