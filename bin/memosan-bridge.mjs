@@ -27,9 +27,10 @@
 //   --timeout <ms>      Per-call timeout (default: 120000)
 
 import { resolve, dirname } from 'node:path';
-import { existsSync, appendFileSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { appendLine, appendLines } from '../lib/writer.mjs';
 import { isAllowed } from '../lib/access.mjs';
 import { scanForMentions } from '../lib/mention-scanner.mjs';
 
@@ -73,20 +74,26 @@ function getContext(filePath, n) {
   return lines.slice(-n).join('\n');
 }
 
-function appendReply(filePath, agent, text) {
-  const t = nowHHMM();
+async function appendReply(filePath, agent, text) {
   const chunks = text
     .split('\n')
     .flatMap(line => {
       if (line.length <= 200) return [line];
+      // Wrap at word boundaries; fall back to hard cut for unbreakable runs.
       const parts = [];
-      for (let i = 0; i < line.length; i += 200) parts.push(line.slice(i, i + 200));
+      let remaining = line;
+      while (remaining.length > 200) {
+        const cut = remaining.lastIndexOf(' ', 200);
+        const pos = cut > 0 ? cut : 200;
+        parts.push(remaining.slice(0, pos));
+        remaining = remaining.slice(pos).trimStart();
+      }
+      if (remaining) parts.push(remaining);
       return parts;
     })
     .filter(l => l.trim());
 
-  const out = chunks.map(l => `[${t} ${agent}] ${l}`).join('\n') + '\n';
-  appendFileSync(filePath, out);
+  await appendLines(filePath, agent, chunks);
 }
 
 // ── memosan call ──────────────────────────────────────────────────────────────
@@ -265,11 +272,11 @@ async function main() {
       log(`@mention from ${mentions[0].author} — querying memosan`);
       try {
         const reply = await callMemosan(memosanUrl, context, question, timeoutMs);
-        appendReply(filePath, agent, reply);
+        await appendReply(filePath, agent, reply);
         log(`replied (${reply.length} chars)`);
       } catch (err) {
         log(`memosan error: ${err.message}`);
-        appendFileSync(filePath, `[${nowHHMM()} ${agent}] (unavailable — ${err.message})\n`);
+        await appendLine(filePath, agent, `(unavailable — ${err.message})`);
       }
     }
   }

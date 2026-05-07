@@ -12,9 +12,10 @@
 //   --context <n>       Lines of chat history to include as context (default: 30)
 
 import { resolve, dirname } from 'node:path';
-import { existsSync, appendFileSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { appendLine, appendLines } from '../lib/writer.mjs';
 import { verifyAgentIdentity } from '../lib/identity.mjs';
 import { isAllowed } from '../lib/access.mjs';
 import { scanForMentions } from '../lib/mention-scanner.mjs';
@@ -59,8 +60,7 @@ function getContext(filePath, n) {
   return lines.slice(-n).join('\n');
 }
 
-function appendReply(filePath, agent, text) {
-  const t = nowHHMM();
+async function appendReply(filePath, agent, text) {
   const chunks = text
     .split('\n')
     .flatMap(line => {
@@ -79,8 +79,7 @@ function appendReply(filePath, agent, text) {
     })
     .filter(l => l.trim());
 
-  const out = chunks.map(l => `[${t} ${agent}] ${l}`).join('\n') + '\n';
-  appendFileSync(filePath, out);
+  await appendLines(filePath, agent, chunks);
 }
 
 // ── LM Studio call ────────────────────────────────────────────────────────────
@@ -188,11 +187,11 @@ async function main() {
       log(`@mention from ${mentions[0].author} — querying LM Studio`);
       try {
         const reply = await callGemma(lmStudio, model, context, question);
-        appendReply(filePath, agent, reply);
+        await appendReply(filePath, agent, reply);
         log(`replied (${reply.length} chars)`);
       } catch (err) {
         log(`LM Studio error: ${err.message}`);
-        appendFileSync(filePath, `[${nowHHMM()} ${agent}] (unavailable — ${err.message})\n`);
+        await appendLine(filePath, agent, `(unavailable — ${err.message})`);
       }
       continue;
     }

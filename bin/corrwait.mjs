@@ -13,10 +13,11 @@
 // Access:   requires the agent to be allowed in <CORR_file>.access.json.
 
 import { resolve } from 'node:path';
-import { closeSync, constants, existsSync, openSync, unlinkSync, writeSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import chokidar from 'chokidar';
 import { verifyAgentIdentity } from '../lib/identity.mjs';
 import { isAllowed, readAcl, aclPath, readCursor, writeCursor } from '../lib/access.mjs';
+import { appendLine } from '../lib/writer.mjs';
 import {
   snapshotAtCursor,
   snapshot,
@@ -50,50 +51,6 @@ function parseArgs(argv) {
     else if (!a.startsWith('--') && !args.file) args.file = a;
   }
   return args;
-}
-
-function nowHHMM() {
-  const d = new Date();
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-function formatFlatLine(agent, message) {
-  return `[${nowHHMM()} ${agent}] ${message}\n`;
-}
-
-async function acquireLock(lockPath) {
-  const deadline = Date.now() + 5_000;
-  while (true) {
-    try {
-      return openSync(lockPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL);
-    } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      if (Date.now() >= deadline) throw new Error('lock timeout');
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-  }
-}
-
-async function writeMode(filePath, agent, message) {
-  const lockPath = `${filePath}.lock`;
-  let lockFd = null;
-  let fileFd = null;
-
-  try {
-    lockFd = await acquireLock(lockPath);
-    fileFd = openSync(filePath, constants.O_WRONLY | constants.O_APPEND);
-    writeSync(fileFd, formatFlatLine(agent, message));
-  } finally {
-    if (fileFd !== null) {
-      try { closeSync(fileFd); } catch { /* best effort */ }
-    }
-    if (lockFd !== null) {
-      try { closeSync(lockFd); } catch { /* best effort */ }
-      try { unlinkSync(lockPath); } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
-      }
-    }
-  }
 }
 
 function emit(reason, payload = {}) {
@@ -142,7 +99,7 @@ async function main() {
   }
 
   if (isWriteMode) {
-    await writeMode(filePath, agent, write);
+    await appendLine(filePath, agent, write);
     process.exit(EXIT.WAKE);
   }
 
