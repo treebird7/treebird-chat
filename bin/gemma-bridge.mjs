@@ -163,6 +163,12 @@ async function main() {
 
     if (result.reason === 'TIMEOUT') continue; // corrwait self-resets
 
+    if (result.reason === 'ERROR') {
+      log('corrwait exited with error — backing off 10s before retry');
+      await new Promise(r => setTimeout(r, 10_000));
+      continue;
+    }
+
     if (result.reason === 'WAKE') {
       const newLines = (result.newContent || '').split('\n');
       const { mentions } = scanForMentions(newLines, agent, 0);
