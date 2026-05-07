@@ -135,7 +135,7 @@ async function main() {
       newRound: initial.hasNewRound,
       newHuman: initial.hasNewHuman,
       newFreeform: initial.hasNewFreeform,
-      catchup: true,
+      immediate: true, // woke from pending content already in file at startup
     });
   }
 

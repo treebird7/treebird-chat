@@ -65,8 +65,16 @@ function appendReply(filePath, agent, text) {
     .split('\n')
     .flatMap(line => {
       if (line.length <= 200) return [line];
+      // Wrap at word boundaries; fall back to hard cut for unbreakable runs.
       const parts = [];
-      for (let i = 0; i < line.length; i += 200) parts.push(line.slice(i, i + 200));
+      let remaining = line;
+      while (remaining.length > 200) {
+        const cut = remaining.lastIndexOf(' ', 200);
+        const pos = cut > 0 ? cut : 200;
+        parts.push(remaining.slice(0, pos));
+        remaining = remaining.slice(pos).trimStart();
+      }
+      if (remaining) parts.push(remaining);
       return parts;
     })
     .filter(l => l.trim());

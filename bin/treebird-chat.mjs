@@ -76,18 +76,42 @@ process.stdout.write(`${DIM}Enter to send · \\n for newline (max ${MAX_LINES} l
 let cursor = statSync(filePath).size;
 let pump = Promise.resolve();
 
+let lastAuthor = null;
+
 function printLine(line) {
   const m = line.match(FLAT_RE);
   if (m) {
     const [, time, author, msg] = m;
-    if (author === agent) return; // suppress our own echo
+    if (author === agent) { lastAuthor = author; return; } // suppress our own echo
     const c = colorFor(author);
+    const cols = process.stdout.columns || 80;
+    // Blank line between speaker changes for readability.
+    const sep = (lastAuthor !== null && lastAuthor !== author) ? '\n' : '';
+    lastAuthor = author;
+    // Word-wrap long messages at terminal width (prefix = "HH:MM Author  ").
+    const prefixLen = time.length + 1 + author.length + 2;
+    const maxMsg = Math.max(20, cols - prefixLen);
+    const wrapped = wordWrap(msg, maxMsg, ' '.repeat(prefixLen));
     // Clear current input line, print message, restore prompt.
     readline.cursorTo(process.stdout, 0);
     readline.clearLine(process.stdout, 0);
-    process.stdout.write(`${DIM}${time}${RESET} ${c}${author}${RESET} ${msg}\n`);
+    process.stdout.write(`${sep}${DIM}${time}${RESET} ${c}${author}${RESET}  ${wrapped}\n`);
     rl.prompt(true);
   }
+}
+
+function wordWrap(text, width, indent) {
+  if (text.length <= width) return text;
+  const parts = [];
+  let remaining = text;
+  while (remaining.length > width) {
+    const cut = remaining.lastIndexOf(' ', width);
+    const pos = cut > 0 ? cut : width;
+    parts.push(remaining.slice(0, pos));
+    remaining = remaining.slice(pos).trimStart();
+  }
+  if (remaining) parts.push(remaining);
+  return parts.join(`\n${indent}`);
 }
 
 const onChange = () => {
