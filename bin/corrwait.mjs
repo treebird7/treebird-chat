@@ -13,7 +13,7 @@
 // Access:   requires the agent to be allowed in <CORR_file>.access.json.
 
 import { resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { closeSync, constants, existsSync, openSync, unlinkSync, writeSync } from 'node:fs';
 import chokidar from 'chokidar';
 import { verifyAgentIdentity } from '../lib/identity.mjs';
 import { isAllowed, readAcl, aclPath, readCursor, writeCursor } from '../lib/access.mjs';
@@ -28,15 +28,72 @@ import {
 const EXIT = { WAKE: 0, END: 1, TIMEOUT: 2, REVOKED: 3, ERROR: 4 };
 
 function parseArgs(argv) {
-  const args = { file: null, endWord: '/end', timeoutSec: 540, as: null };
+  const args = {
+    file: null,
+    endWord: '/end',
+    timeoutSec: 540,
+    as: null,
+    onMention: false,
+    write: null,
+    writeMode: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--end-word') args.endWord = argv[++i];
     else if (a === '--timeout') args.timeoutSec = parseInt(argv[++i], 10);
     else if (a === '--as') args.as = argv[++i];
+    else if (a === '--on-mention') args.onMention = true;
+    else if (a === '--write') {
+      args.writeMode = true;
+      args.write = argv[++i];
+    }
     else if (!a.startsWith('--') && !args.file) args.file = a;
   }
   return args;
+}
+
+function nowHHMM() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function formatFlatLine(agent, message) {
+  return `[${nowHHMM()} ${agent}] ${message}\n`;
+}
+
+async function acquireLock(lockPath) {
+  const deadline = Date.now() + 5_000;
+  while (true) {
+    try {
+      return openSync(lockPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL);
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      if (Date.now() >= deadline) throw new Error('lock timeout');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+}
+
+async function writeMode(filePath, agent, message) {
+  const lockPath = `${filePath}.lock`;
+  let lockFd = null;
+  let fileFd = null;
+
+  try {
+    lockFd = await acquireLock(lockPath);
+    fileFd = openSync(filePath, constants.O_WRONLY | constants.O_APPEND);
+    writeSync(fileFd, formatFlatLine(agent, message));
+  } finally {
+    if (fileFd !== null) {
+      try { closeSync(fileFd); } catch { /* best effort */ }
+    }
+    if (lockFd !== null) {
+      try { closeSync(lockFd); } catch { /* best effort */ }
+      try { unlinkSync(lockPath); } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+    }
+  }
 }
 
 function emit(reason, payload = {}) {
@@ -44,9 +101,16 @@ function emit(reason, payload = {}) {
 }
 
 async function main() {
-  const { file, endWord, timeoutSec, as } = parseArgs(process.argv.slice(2));
+  const { file, endWord, timeoutSec, as, onMention, write, writeMode: isWriteMode } =
+    parseArgs(process.argv.slice(2));
   if (!file) {
-    process.stderr.write('usage: corrwait <CORR_file> [--as <agent>] [--end-word "/end"] [--timeout 540]\n');
+    process.stderr.write(
+      'usage: corrwait <CORR_file> [--as <agent>] [--write <message>] [--on-mention] [--end-word "/end"] [--timeout 540]\n'
+    );
+    process.exit(EXIT.ERROR);
+  }
+  if (isWriteMode && write == null) {
+    process.stderr.write('usage: corrwait <CORR_file> --write <message> [--as <agent>]\n');
     process.exit(EXIT.ERROR);
   }
 
@@ -75,6 +139,11 @@ async function main() {
   if (!isAllowed(filePath, agent)) {
     emit('REVOKED', { agent });
     process.exit(EXIT.REVOKED);
+  }
+
+  if (isWriteMode) {
+    await writeMode(filePath, agent, write);
+    process.exit(EXIT.WAKE);
   }
 
   if (endMarkerExists(filePath)) {
@@ -120,7 +189,8 @@ async function main() {
   // Catchup: if there's already pending wake-worthy content, fire immediately.
   // Pass `agent` so self-authored lines never trigger wake (filters self-noise
   // when a stale corrwait was running while this agent appended).
-  const initial = diffSinceBaseline(filePath, baseline, endWord, agent);
+  const mentionTarget = onMention ? agent : null;
+  const initial = diffSinceBaseline(filePath, baseline, endWord, agent, mentionTarget);
   if (initial.endViaWord) {
     return finish(EXIT.END, 'END', {
       source: 'end-word',
@@ -166,7 +236,7 @@ async function main() {
       return finish(EXIT.END, 'END', { source: 'sidecar' });
     }
 
-    const diff = diffSinceBaseline(filePath, baseline, endWord, agent);
+    const diff = diffSinceBaseline(filePath, baseline, endWord, agent, mentionTarget);
 
     if (diff.endViaWord) {
       clearTimeout(timer);
