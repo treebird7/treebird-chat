@@ -99,7 +99,7 @@ async function main() {
   }
 
   if (isWriteMode) {
-    await appendLine(filePath, agent, write);
+    await appendLine(filePath, agent, write.replace(/[\r\n]/g, ' '));
     process.exit(EXIT.WAKE);
   }
 
@@ -133,7 +133,7 @@ async function main() {
           ? lines.length - 1
           : lines.length;
         writeCursor(filePath, agent, realLines);
-      } catch { /* non-fatal */ }
+      } catch (e) { process.stderr.write(`[corrwait] writeCursor failed: ${e.message}\n`); }
     }
     emit(reason, { agent, ...payload });
     if (watcher) {

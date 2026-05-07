@@ -302,6 +302,12 @@ async function main() {
     process.exit(1);
   }
 
+  const AGENT_RE = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
+  if (!AGENT_RE.test(agent)) {
+    process.stderr.write(`Invalid --as value: "${agent}". Must be letters/digits/hyphens/underscores, max 32 chars.\n`);
+    process.exit(1);
+  }
+
   const filePath = resolve(file);
   if (!existsSync(filePath)) {
     process.stderr.write(`File not found: ${filePath}\n`);
@@ -340,13 +346,21 @@ async function main() {
   if (url) childArgs.push('--url', url);
   if (model) childArgs.push('--model', model);
 
+  const bridgeEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !/^ENVOAK_|^SUPABASE_/.test(k))
+  );
+
   const child = spawn(process.execPath, childArgs, {
     detached: true,
     stdio: 'ignore',
+    env: bridgeEnv,
+  });
+  child.on('error', (err) => {
+    process.stderr.write(`Failed to start ${agent}-bridge: ${err.message}\n`);
   });
   child.unref();
 
-  writeFileSync(pidPath, `${child.pid}\n`);
+  writeFileSync(pidPath, `${child.pid}\n`, { mode: 0o644 });
 
   if (kind !== 'gemma') {
     process.stdout.write(`${kind} kind not yet fully implemented; started stub bridge.\n`);

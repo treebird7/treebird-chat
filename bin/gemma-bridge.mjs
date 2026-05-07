@@ -122,6 +122,7 @@ function runCorrwait(filePath, agent) {
     });
     let out = '';
     child.stdout.on('data', d => { out += d.toString(); });
+    child.on('error', () => resolve({ reason: 'ERROR' }));
     child.on('close', () => {
       try   { resolve(JSON.parse(out.trim())); }
       catch { resolve({ reason: 'ERROR' }); }
