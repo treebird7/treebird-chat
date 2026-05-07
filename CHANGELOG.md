@@ -8,6 +8,8 @@
 
 ### Added
 
+
+
 - **`treebird-chat-wizard`** — interactive 7-step session setup: name, location, transport (local / +smalltoak bridge), agent invite (numbered list of known agents + free-form), local LLM config (probes LM Studio for loaded models), discussion template (consortium / code_review / adversarial / brainstorm / blank), confirm + create. Writes the chosen template into the file, sets ACL, starts bridges, prints the join command.
 
 - **`treebird-chat-session`** — non-interactive one-liner session creator. Creates `CONSORTIUM_<name>_<date>.md`, sets ACL for `--invite`d agents, auto-starts `gemma-bridge` if `gemma` is invited, prints `export CHAT=` + join hint. `--join` flag opens TUI immediately.
@@ -21,6 +23,12 @@
   - `code_review` — risk checklist (security / breaking changes / large diffs / auth)
   - `adversarial` — proposer vs critic with arbiter rounds
   - `brainstorm` — open ideation with `[IDEA]` / `[CONCERN]` tagging
+
+## 0.1.1 — 2026-05-07
+
+### Fixed
+
+- **`gemma-bridge` crash storm** — unhandled `ERROR` result from `corrwait` caused an instant tight loop spawning hundreds of crashing node processes (114 in ~1 min observed on m5 at 3am). Added 10s backoff before retry when `corrwait` exits with error, preventing runaway crash reporting and CPU melt.
 
 ## 0.1.0 — 2026-05-03
 
