@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Security
+
+- **Path traversal via `--as` flag** (`treebird-chat-add-bridge`) — agent name passed to `resolve()` without validation allowed directory traversal. Fixed with `AGENT_RE = /^[a-z0-9_-]+$/i` allowlist enforced before any path use.
+- **Newline injection in writer** (`lib/writer.mjs`) — agent name embedded in flat-format chat line `[HH:MM agent] msg`; a `\r\n` in the name split the line header. Sanitized at write time with `.replace(/[\r\n]/g, '')`.
+- **Newline injection in `--write` message** (`bin/corrwait.mjs`) — `\r\n` in the message payload split the header line in structured output. Stripped at write time.
+- **Missing `child.on('error')` on spawned children** (`bin/gemma-bridge.mjs`, `bin/treebird-chat-add-bridge.mjs`) — unhandled ENOENT on `spawn()` emits a synchronous EventEmitter error, not a promise rejection, so `async try/catch` cannot catch it. Added `child.on('error')` handlers on both spawned processes.
+- **Bridge inherits agent-process secrets** (`treebird-chat-add-bridge`) — detached bridge child inherited full `process.env` including `ENVOAK_*` and `SUPABASE_*` credentials. Applied denylist filter (`/^ENVOAK_|^SUPABASE_/`) before spawning bridge process.
+- **Lockfile and pidPath created world-readable** — `writer.mjs` lockfile created without explicit mode; `treebird-chat-add-bridge` pidPath written without mode. Fixed: lockfile `0o600`, pidPath `0o644`.
+
 ### Added
 
 - **`treebird-chat-wizard`** — interactive 7-step session setup: name, location, transport (local / +smalltoak bridge), agent invite (numbered list of known agents + free-form), local LLM config (probes LM Studio for loaded models), discussion template (consortium / code_review / adversarial / brainstorm / blank), confirm + create. Writes the chosen template into the file, sets ACL, starts bridges, prints the join command.
