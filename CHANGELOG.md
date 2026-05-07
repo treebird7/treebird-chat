@@ -2,13 +2,7 @@
 
 ## Unreleased
 
-### Fixed
-
-- **`gemma-bridge` crash storm** — unhandled `ERROR` result from `corrwait` caused an instant tight loop spawning hundreds of crashing node processes (114 in ~1 min observed on m5 at 3am). Added 10s backoff before retry when `corrwait` exits with error, preventing runaway crash reporting and CPU melt.
-
 ### Added
-
-
 
 - **`treebird-chat-wizard`** — interactive 7-step session setup: name, location, transport (local / +smalltoak bridge), agent invite (numbered list of known agents + free-form), local LLM config (probes LM Studio for loaded models), discussion template (consortium / code_review / adversarial / brainstorm / blank), confirm + create. Writes the chosen template into the file, sets ACL, starts bridges, prints the join command.
 
@@ -23,6 +17,14 @@
   - `code_review` — risk checklist (security / breaking changes / large diffs / auth)
   - `adversarial` — proposer vs critic with arbiter rounds
   - `brainstorm` — open ideation with `[IDEA]` / `[CONCERN]` tagging
+
+## 0.1.2 — 2026-05-07
+
+### Fixed
+
+- **`gemma-bridge` supervisor loop** — replaced bare `main().catch()` with a `supervisor()` loop that restarts `main()` on crash after a 5s backoff, preventing silent process death from dropping mentions on the floor. Also logs unknown corrwait reason codes to aid debugging.
+
+- **`treebird-chat` TUI pump chain** — `onChange` handler errors now log to stderr and schedule a 250ms retry instead of permanently rejecting the pump promise, which previously caused all subsequent messages to silently fail to display.
 
 ## 0.1.1 — 2026-05-07
 

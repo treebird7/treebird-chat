@@ -1,6 +1,6 @@
 {
   "name": "treebird-chat",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Blocking chat CLI for human + multi-agent correspondence on shared CORR_*.md files",
   "type": "module",
   "bin": {
