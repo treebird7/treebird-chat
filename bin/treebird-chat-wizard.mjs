@@ -18,6 +18,7 @@ import readline from 'node:readline';
 
 const __dirname  = dirname(fileURLToPath(import.meta.url));
 const ALLOW_BIN  = resolve(__dirname, 'treebird-chat-allow.mjs');
+const INVITE_BIN = resolve(__dirname, 'treebird-chat-invite.mjs');
 const CHAT_BIN   = resolve(__dirname, 'treebird-chat.mjs');
 const GEMMA_BIN  = resolve(__dirname, 'gemma-bridge.mjs');
 const BRIDGE_BIN = resolve(__dirname, 'treebird-chat-bridge.mjs');
@@ -396,6 +397,18 @@ async function main() {
   // Post session-open message
   const agentList = invites.length ? invites.join(', ') : 'none';
   appendFileSync(filePath, `[${nowHHMM()} ${humanName}] session open — invited: ${agentList}\n`);
+
+  // Print invite blocks for non-local agents (skip gemma — it's auto-started)
+  const agentsToInvite = invites.filter(a => !KNOWN_AGENTS.find(k => k.name === a && k.local));
+  if (agentsToInvite.length > 0) {
+    section('Agent invites — copy-paste each to the agent\'s session:');
+    for (const agent of agentsToInvite) {
+      const inviteArgs = [INVITE_BIN, filePath, agent];
+      if (smalltoakUrl && chatId) inviteArgs.push('--smalltoak-url', smalltoakUrl, '--chat-id', chatId);
+      const result = spawnSync(process.execPath, inviteArgs, { stdio: 'pipe' });
+      process.stdout.write(result.stdout.toString());
+    }
+  }
 
   // Launch TUI
   section('Opening chat...');
