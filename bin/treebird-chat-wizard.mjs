@@ -217,6 +217,10 @@ async function main() {
   process.stdout.write(`\n${B}${M}treebird-chat wizard${R} — interactive session setup\n`);
   process.stdout.write(`${D}Press Enter to accept defaults shown in [brackets].${R}\n`);
 
+  // ── Your name ───────────────────────────────────────────────────────────────
+  const defaultName = process.env.BIRDCHAT_AGENT || process.env.ENVOAK_AGENT_LABEL?.replace(/-[^-]+$/, '') || '';
+  const humanName = await askDefault('Your name', defaultName || 'human');
+
   // ── Step 1: Name ────────────────────────────────────────────────────────────
   header(1, 'Session name');
   info('Used in the filename: CONSORTIUM_<name>_<date>.md');
@@ -329,6 +333,7 @@ async function main() {
   // ── Step 7: Confirm ─────────────────────────────────────────────────────────
   header(7, 'Confirm');
   section('Summary:');
+  process.stdout.write(`  You:       ${B}${humanName}${R}\n`);
   process.stdout.write(`  File:      ${B}${filePath}${R}\n`);
   process.stdout.write(`  Transport: ${B}${transport}${R}\n`);
   if (smalltoakUrl) {
@@ -355,10 +360,11 @@ async function main() {
 
   // Allow owner + agents
   const allow = (agent) => spawnSync(
-    process.execPath, [ALLOW_BIN, filePath, agent, '--owner', 'treebird'],
+    process.execPath, [ALLOW_BIN, filePath, agent, '--owner', humanName],
     { stdio: 'pipe' }
   );
-  allow('treebird');
+  allow(humanName);
+  ok(`ACL: ${humanName} (you)`);
   for (const agent of invites) {
     allow(agent);
     ok(`ACL: ${agent}`);
@@ -389,21 +395,23 @@ async function main() {
 
   // Post session-open message
   const agentList = invites.length ? invites.join(', ') : 'none';
-  appendFileSync(filePath, `[${nowHHMM()} treebird] session open — invited: ${agentList}\n`);
+  appendFileSync(filePath, `[${nowHHMM()} ${humanName}] session open — invited: ${agentList}\n`);
 
-  // Final instructions
-  section('Ready:');
-  process.stdout.write(`\n  ${B}export CHAT=${filePath}${R}\n`);
-  process.stdout.write(`  node ${CHAT_BIN} $CHAT\n`);
-  if (invites.includes('gemma')) {
-    process.stdout.write(`\n  ${D}Gemma is listening. Say${R} ${B}@gemma <question>${R} ${D}to talk to it.${R}\n`);
+  // Launch TUI
+  section('Opening chat...');
+  if (invites.includes('gemma') || invites.some(a => KNOWN_AGENTS.find(k => k.name === a && k.local))) {
+    process.stdout.write(`  ${D}@gemma is listening — say ${R}${B}@gemma <question>${R}${D} to talk to it.${R}\n`);
   }
   if (smalltoakUrl) {
-    process.stdout.write(`\n  ${D}Remote agents join via smalltoak chat-id:${R} ${B}${chatId}${R}\n`);
+    process.stdout.write(`  ${D}Remote agents join via smalltoak chat-id:${R} ${B}${chatId}${R}\n`);
   }
   process.stdout.write('\n');
 
   rl.close();
+  spawnSync(process.execPath, [CHAT_BIN, filePath, '--as', humanName], {
+    stdio: 'inherit',
+    env: { ...process.env, BIRDCHAT_AGENT: humanName },
+  });
 }
 
 main().catch(e => {
