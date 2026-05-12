@@ -11,7 +11,7 @@
 //   7. Confirm + create
 
 import { resolve, dirname } from 'node:path';
-import { existsSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn, execSync } from 'node:child_process';
 import readline from 'node:readline';
@@ -72,25 +72,32 @@ async function askChoice(prompt, choices, def) {
 
 // ── Known agents ──────────────────────────────────────────────────────────────
 
-const KNOWN_AGENTS = [
-  { name: 'yosef',       role: 'research / prototyping',       local: false },
-  { name: 'watsan',      role: 'coordination / training data', local: false },
-  { name: 'sherlocksan', role: 'code review / debugging',      local: false },
-  { name: 'mappersan',   role: 'mapping / documentation',      local: false },
-  { name: 'birdsan',     role: 'implementation',               local: false },
-  { name: 'artisan',     role: 'architecture',                 local: false },
-  { name: 'mycsan',      role: 'database / SQL',               local: false },
-  { name: 'treesan',     role: 'integration',                  local: false },
-  { name: 'sasusan',     role: 'security auditing',            local: false },
-  { name: 'gemma',       role: 'local LLM — Gemma 4 (LM Studio)', local: true },
+// Known agents: loaded from TREEBIRD_AGENTS_FILE (JSON array of {name, role, local?})
+// if set, otherwise just the built-in local LLM entry.
+// Format: [{"name":"myagent","role":"does stuff"},{"name":"gemma","local":true,"role":"local LLM"}]
+const BUILTIN_LOCAL_AGENTS = [
+  { name: 'gemma', role: 'local LLM — Gemma 4 (LM Studio)', local: true },
 ];
+
+function loadKnownAgents() {
+  const agentsFile = process.env.TREEBIRD_AGENTS_FILE;
+  if (agentsFile && existsSync(agentsFile)) {
+    try {
+      const entries = JSON.parse(readFileSync(agentsFile, 'utf8'));
+      if (Array.isArray(entries)) return entries;
+    } catch { /* fall through */ }
+  }
+  return BUILTIN_LOCAL_AGENTS;
+}
+
+const KNOWN_AGENTS = loadKnownAgents();
 
 // ── Templates ─────────────────────────────────────────────────────────────────
 
 const TEMPLATES = {
-  consortium: (name, agents, goal) => `# Consortium: ${name} — ${today()}
+  consortium: (name, agents, goal, facilitator) => `# Consortium: ${name} — ${today()}
 
-**Facilitator:** treebird
+**Facilitator:** ${facilitator}
 **Goal:** ${goal || '[fill in]'}
 **Started:** ${nowHHMM()}
 **Closed:** —
@@ -99,7 +106,7 @@ const TEMPLATES = {
 
 | Name | Role |
 |------|------|
-| treebird | facilitator / human |
+| ${facilitator} | facilitator / human |
 ${agents.map(a => `| ${a} | — |`).join('\n')}
 
 ## Agenda
@@ -108,8 +115,8 @@ ${agents.map(a => `| ${a} | — |`).join('\n')}
 2. [Item 2]
 3. [Item 3]
 
-> Open each item: \`[HH:MM treebird] agenda item N: ...\`
-> Close each item: \`[HH:MM treebird] item N closed\`
+> Open each item: \`[HH:MM ${facilitator}] agenda item N: ...\`
+> Close each item: \`[HH:MM ${facilitator}] item N closed\`
 
 ## Decisions
 
@@ -154,12 +161,12 @@ If nothing flagged: \`[HH:MM agent] LGTM — no issues found.\`
 
 `,
 
-  adversarial: (name, agents) => `# Adversarial Review: ${name} — ${today()}
+  adversarial: (name, agents, goal, facilitator) => `# Adversarial Review: ${name} — ${today()}
 
 **Roles:**
 - Proposer: ${agents[0] || 'TBD'} — argues FOR the proposal
 - Critic: ${agents[1] || 'TBD'} — finds weaknesses, attack vectors
-- Arbiter: ${agents[2] || 'treebird'} — calls the round, issues verdict
+- Arbiter: ${agents[2] || facilitator} — calls the round, issues verdict
 
 ## Proposal
 
@@ -260,7 +267,7 @@ async function main() {
   });
   process.stdout.write(`  ${D}  0.${R} other — type a name below\n`);
 
-  const agentRaw = await ask('  Agents (e.g. 1,3,10 or yosef,watsan,gemma): ');
+  const agentRaw = await ask('  Agents (e.g. 1,3 or agent1,agent2,gemma): ');
   const agentTokens = agentRaw.split(',').map(s => s.trim()).filter(Boolean);
   const invites = [];
   for (const tok of agentTokens) {
@@ -329,7 +336,7 @@ async function main() {
   }
 
   const templateFn = TEMPLATES[chosenTemplate] || TEMPLATES.blank;
-  const templateContent = templateFn(name, invites, goal);
+  const templateContent = templateFn(name, invites, goal, humanName);
 
   // ── Step 7: Confirm ─────────────────────────────────────────────────────────
   header(7, 'Confirm');
