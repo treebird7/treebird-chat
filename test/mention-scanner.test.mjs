@@ -69,4 +69,21 @@ describe('scanForMentions', () => {
     assert.equal(mentions.length, 0);
     assert.equal(newCursor, lines.length);
   });
+
+  it('does not fire on @mention inside backticks', () => {
+    const backtickLines = [
+      '[10:10 yosef] run `@birdsan` to invoke the tool',
+      '[10:11 yosef] or use ``@birdsan-m2`` as shown',
+    ];
+    const { mentions } = scanForMentions(backtickLines, 'birdsan-m2', 0);
+    assert.equal(mentions.length, 0, 'backtick-wrapped @mentions must not fire');
+  });
+
+  it('still fires on @mention outside backticks in same line', () => {
+    const mixedLines = [
+      '[10:12 yosef] see `code` then @birdsan can you check?',
+    ];
+    const { mentions } = scanForMentions(mixedLines, 'birdsan-m2', 0);
+    assert.equal(mentions.length, 1);
+  });
 });

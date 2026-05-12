@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { diffSinceBaseline } from '../lib/watcher.mjs';
+import { diffSinceBaseline, FLAT_RE, findCursorAfterLastSelfRound } from '../lib/watcher.mjs';
 
 function fixture(content) {
   const dir = mkdtempSync(join(tmpdir(), 'watcher-test-'));
@@ -94,4 +94,33 @@ test('agent name with hyphens (e.g. sancho-nightly) escapes correctly', () => {
     const diff = diffSinceBaseline(file, emptyBaseline, '/end', 'sancho-nightly');
     assert.deepEqual(diff.wakeLines, ['[12:01 sancho] not the same agent']);
   } finally { cleanup(); }
+});
+
+test('FLAT_RE parses parallel-hand suffix (e.g. yosef #2)', () => {
+  const m = FLAT_RE.exec('[14:23 yosef #2] hello from parallel hand');
+  assert.ok(m, 'FLAT_RE should match #N suffix lines');
+  assert.equal(m[1], '14:23');
+  assert.equal(m[2], 'yosef #2');
+  assert.equal(m[3], 'hello from parallel hand');
+});
+
+test('self flat line with #N suffix is filtered (same base agent)', () => {
+  const { file, cleanup } = fixture('[12:00 yosef #2] parallel reply\n[12:01 watsan] foreign\n');
+  try {
+    const diff = diffSinceBaseline(file, emptyBaseline, '/end', 'yosef');
+    assert.equal(diff.woke, true);
+    assert.deepEqual(diff.wakeLines, ['[12:01 watsan] foreign']);
+  } finally { cleanup(); }
+});
+
+test('cursor advances past #N parallel-hand lines', () => {
+  const lines = [
+    '[12:00 watsan] hey',
+    '[12:01 yosef] first hand',
+    '[12:02 yosef #2] second hand',
+    '[12:03 watsan] reply',
+  ];
+  // Cursor should be after the last yosef line (index 2 → cursor = 3)
+  const cursor = findCursorAfterLastSelfRound(lines, 'yosef');
+  assert.equal(cursor, 3, 'cursor should advance past yosef #2 line');
 });
