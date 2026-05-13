@@ -16,6 +16,13 @@ node_modules/
 secrets/
 credentials/
 
+# Private specs, plans, contracts — stay local, never push to public repo
+SPEC_*.md
+FUTURE_*.md
+PLAN_*.md
+CODEX_CONTRACT*.md
+.pending_task.md
+
 # Per-chat state created by corrwait / bridge — never commit
 *.cursor.*
 *.bridge-cursor.json
