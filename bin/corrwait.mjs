@@ -156,13 +156,14 @@ async function main() {
     });
   }
   if (initial.woke) {
-    return finish(EXIT.WAKE, 'WAKE', {
+    return finish(EXIT.WAKE, initial.priority === 'urgent' ? 'URGENT_WAKE' : 'WAKE', {
       wakeLines: initial.wakeLines,
       newContent: initial.newLines.join('\n'),
       newRound: initial.hasNewRound,
       newHuman: initial.hasNewHuman,
       newFreeform: initial.hasNewFreeform,
-      immediate: true, // woke from pending content already in file at startup
+      priority: initial.priority,
+      immediate: true,
     });
   }
 
@@ -202,12 +203,13 @@ async function main() {
 
     if (diff.woke) {
       clearTimeout(timer);
-      return finish(EXIT.WAKE, 'WAKE', {
+      return finish(EXIT.WAKE, diff.priority === 'urgent' ? 'URGENT_WAKE' : 'WAKE', {
         wakeLines: diff.wakeLines,
         newContent: diff.newLines.join('\n'),
         newRound: diff.hasNewRound,
         newHuman: diff.hasNewHuman,
         newFreeform: diff.hasNewFreeform,
+        priority: diff.priority,
       });
     }
   };
