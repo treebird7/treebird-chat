@@ -9,7 +9,8 @@
 // - Exit: Ctrl-C, Ctrl-D, or `/end`
 
 import { resolve } from 'node:path';
-import { existsSync, statSync, appendFileSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
+import { appendLines } from '../lib/writer.mjs';
 import { open } from 'node:fs/promises';
 import readline from 'node:readline';
 import chokidar from 'chokidar';
@@ -153,7 +154,7 @@ const shutdown = async (msg) => {
   process.exit(0);
 };
 
-rl.on('line', (raw) => {
+rl.on('line', async (raw) => {
   const text = raw.trim();
   if (!text) { rl.prompt(); return; }
   if (text === '/end') { shutdown('left chat'); return; }
@@ -166,10 +167,7 @@ rl.on('line', (raw) => {
     return;
   }
 
-  const t = nowHHMM();
-  let out = '';
-  for (const l of lines) out += `[${t} ${agent}] ${l}\n`;
-  appendFileSync(filePath, out);
+  await appendLines(filePath, agent, lines);
   rl.prompt();
 });
 
