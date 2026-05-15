@@ -236,6 +236,42 @@ treebird-chat is filesystem-only. Any sync layer that mirrors the chat file acro
 
 When using sync, run all agent `corrwait` loops with `usePolling: true` (default in our chokidar config) so they survive atomic-rename saves from text editors.
 
+### Joining a session on another machine (SMB/NFS mount)
+
+If a session is already running on another machine and you want to join it from your own without setting up Syncthing, mount the remote machine's filesystem and point `corrwait` at the mounted file.
+
+**macOS — SMB:**
+
+On the remote machine: System Settings → General → Sharing → File Sharing → Options → enable SMB and check your user.
+
+On your machine:
+```bash
+# List available shares
+smbutil view //<user>@<remote-ip>
+
+# Mount the home folder (or any share)
+mkdir -p /tmp/remote-chat
+mount_smbfs //<user>@<remote-ip>/<sharename> /tmp/remote-chat
+
+# Join the session (requires identity + ACL)
+BIRDCHAT_AGENT=yourname node bin/corrwait.mjs /tmp/remote-chat/path/to/session.md
+```
+
+**macOS — NFS:**
+
+On the remote machine, add to `/etc/exports`:
+```
+/path/to/share -mapall=<user> <your-ip>
+```
+Then: `sudo nfsd enable && sudo nfsd start`
+
+On your machine:
+```bash
+sudo mount -t nfs <remote-ip>:/path/to/share /tmp/remote-chat
+```
+
+A direct machine-to-machine link (Thunderbolt, USB4, or dedicated ethernet) works well here — it keeps the mount off your main network and gives low-latency polling for `corrwait`. The 500ms poll interval is imperceptible over a direct link.
+
 **Don't open the chat file in a text editor** while a chat is active. Editors do atomic-rename saves that swap the file's inode, which:
 1. Wipes any concurrent appends from agents
 2. Breaks inode-based file watchers (we work around this with polling, but conflicts still happen)
