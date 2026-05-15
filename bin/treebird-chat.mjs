@@ -17,6 +17,7 @@ import chokidar from 'chokidar';
 import { verifyAgentIdentity } from '../lib/identity.mjs';
 import { isAllowed, readAcl, aclPath, setAllowed } from '../lib/access.mjs';
 import { FLAT_RE } from '../lib/watcher.mjs';
+import { findSessionByPath } from '../lib/config.mjs';
 
 const MAX_LINES = 3;
 const COLORS = ['\x1b[36m', '\x1b[35m', '\x1b[33m', '\x1b[32m', '\x1b[34m', '\x1b[91m', '\x1b[95m'];
@@ -167,8 +168,16 @@ rl.on('line', async (raw) => {
       return;
     }
     setAllowed(filePath, invitee, true);
-    process.stdout.write(`${DIM}→ ${invitee} added to ACL${RESET}\n`);
     await appendLines(filePath, agent, [`/invite ${invitee} — joined the chat`]);
+
+    const W = '═'.repeat(56);
+    const session = findSessionByPath(filePath);
+    if (session?.smalltoakUrl && session?.chatId) {
+      const { chatId, smalltoakUrl } = session;
+      process.stdout.write(`\n${W}\n treebird-chat invite — ${invitee}  [cross-machine via smalltoak]\n${W}\n\n 1. Start the bridge on your machine:\n\n    SMALLTOAK_TOKEN=<your-token> \\\n    node ~/Dev/treebird-chat/bin/treebird-chat-bridge.mjs \\\n      ${chatId} /tmp/${chatId}.md \\\n      --smalltoak-url ${smalltoakUrl}\n\n 2. Then join the local mirror file it creates:\n\n    corrwait /tmp/${chatId}.md --as ${invitee} --timeout 540\n\n 3. Reply with:\n\n    printf '[%s ${invitee}] your reply\\n' "$(date +%H:%M)" >> /tmp/${chatId}.md\n\n${W}\n\n`);
+    } else {
+      process.stdout.write(`\n${W}\n treebird-chat invite — ${invitee}\n${W}\n\n File: ${filePath}\n\n Wait for messages:\n\n   corrwait ${filePath} --as ${invitee} --timeout 540\n\n When woken, reply:\n\n   printf '[%s ${invitee}] your reply\\n' "$(date +%H:%M)" >> ${filePath}\n\n${W}\n\n`);
+    }
     rl.prompt();
     return;
   }
