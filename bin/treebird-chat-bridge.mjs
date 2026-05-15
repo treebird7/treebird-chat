@@ -7,6 +7,9 @@ import { runBridge } from '../lib/bridge.mjs';
 import { createFileCursorStore } from '../lib/bridge-cursor.mjs';
 import { createMarkdownArchive } from '../lib/markdown-archive.mjs';
 import { AuthError, createSmalltoakTransport } from '../lib/smalltoak-transport.mjs';
+import { loadEnv } from '../lib/config.mjs';
+
+loadEnv();
 
 const EXIT = { OK: 0, ERROR: 1, REVOKED: 3 };
 

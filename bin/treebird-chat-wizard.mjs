@@ -15,6 +15,10 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, appendFileSync } fr
 import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn, execSync } from 'node:child_process';
 import readline from 'node:readline';
+import { loadEnv, saveSession, loadSession } from '../lib/config.mjs';
+
+// Load .env / ~/.treebird-chat/.env before anything reads process.env
+loadEnv();
 
 const __dirname  = dirname(fileURLToPath(import.meta.url));
 const ALLOW_BIN  = resolve(__dirname, 'treebird-chat-allow.mjs');
@@ -389,6 +393,9 @@ async function main() {
     ok(`gemma-bridge started (PID ${child.pid})`);
   }
 
+  // Save session config for --join
+  saveSession(chatId || humanName, { filePath, smalltoakUrl, smalltoakToken, humanName });
+
   // Start smalltoak bridge if requested
   if (smalltoakUrl && smalltoakToken && chatId) {
     const env = { ...process.env, SMALLTOAK_TOKEN: smalltoakToken };
@@ -434,8 +441,59 @@ async function main() {
   });
 }
 
-main().catch(e => {
-  process.stderr.write(`wizard error: ${e.stack || e.message}\n`);
-  rl.close();
-  process.exit(1);
-});
+// ── --join <chat-id>: rejoin a saved session ──────────────────────────────────
+
+async function joinSession(chatId) {
+  const session = loadSession(chatId);
+  if (!session) {
+    process.stderr.write(`No saved session "${chatId}". Run the wizard without --join to create one.\n`);
+    process.exit(1);
+  }
+
+  const { filePath, smalltoakUrl, humanName } = session;
+
+  if (!existsSync(filePath)) {
+    mkdirSync(resolve(filePath, '..'), { recursive: true });
+    writeFileSync(filePath, '');
+  }
+
+  // Start smalltoak bridge if session uses it
+  if (smalltoakUrl) {
+    const token = process.env.SMALLTOAK_TOKEN || '';
+    const env = { ...process.env, SMALLTOAK_TOKEN: token };
+    const child = spawn(
+      process.execPath,
+      [BRIDGE_BIN, chatId, filePath, '--smalltoak-url', smalltoakUrl],
+      { stdio: ['ignore', 'ignore', 'inherit'], detached: true, env }
+    );
+    child.unref();
+    process.stdout.write(`bridge started (PID ${child.pid})  chat-id: ${chatId}\n`);
+  }
+
+  // Open TUI directly
+  spawnSync(process.execPath, [CHAT_BIN, filePath, '--as', humanName || ''], {
+    stdio: 'inherit',
+    env: { ...process.env, BIRDCHAT_AGENT: humanName || '' },
+  });
+}
+
+// ── Entry point ───────────────────────────────────────────────────────────────
+
+const joinIdx = process.argv.indexOf('--join');
+if (joinIdx !== -1) {
+  const chatId = process.argv[joinIdx + 1];
+  if (!chatId || chatId.startsWith('--')) {
+    process.stderr.write('usage: treebird-chat-wizard --join <chat-id>\n');
+    process.exit(1);
+  }
+  joinSession(chatId).catch(e => {
+    process.stderr.write(`join error: ${e.stack || e.message}\n`);
+    process.exit(1);
+  });
+} else {
+  main().catch(e => {
+    process.stderr.write(`wizard error: ${e.stack || e.message}\n`);
+    rl.close();
+    process.exit(1);
+  });
+}
