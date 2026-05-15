@@ -15,7 +15,7 @@ import { open } from 'node:fs/promises';
 import readline from 'node:readline';
 import chokidar from 'chokidar';
 import { verifyAgentIdentity } from '../lib/identity.mjs';
-import { isAllowed, readAcl, aclPath } from '../lib/access.mjs';
+import { isAllowed, readAcl, aclPath, setAllowed } from '../lib/access.mjs';
 import { FLAT_RE } from '../lib/watcher.mjs';
 
 const MAX_LINES = 3;
@@ -71,7 +71,7 @@ if (!isAllowed(filePath, agent)) {
 
 const myColor = colorFor(agent);
 process.stdout.write(`${BOLD}treebird-chat${RESET} — ${myColor}${agent}${RESET} on ${DIM}${file}${RESET}\n`);
-process.stdout.write(`${DIM}Enter to send · \\n for newline (max ${MAX_LINES} lines) · /end or Ctrl-D to leave${RESET}\n\n`);
+process.stdout.write(`${DIM}Enter to send · \\n for newline (max ${MAX_LINES} lines) · /invite <agent> · /end or Ctrl-D to leave${RESET}\n\n`);
 
 // ── tail (incoming) ────────────────────────────────────────────────────
 let cursor = statSync(filePath).size;
@@ -158,6 +158,20 @@ rl.on('line', async (raw) => {
   const text = raw.trim();
   if (!text) { rl.prompt(); return; }
   if (text === '/end') { shutdown('left chat'); return; }
+
+  if (text.startsWith('/invite ')) {
+    const invitee = text.slice(8).trim();
+    if (!invitee) {
+      process.stdout.write(`${DIM}usage: /invite <agent>${RESET}\n`);
+      rl.prompt();
+      return;
+    }
+    setAllowed(filePath, invitee, true);
+    process.stdout.write(`${DIM}→ ${invitee} added to ACL${RESET}\n`);
+    await appendLines(filePath, agent, [`/invite ${invitee} — joined the chat`]);
+    rl.prompt();
+    return;
+  }
 
   // \n in input → real newlines. Enforce 3-line max.
   const lines = text.replace(/\\n/g, '\n').split('\n').map((l) => l.trim()).filter(Boolean);
