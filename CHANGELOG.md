@@ -4,6 +4,15 @@
 
 ### Security
 
+- **Full `process.env` passthrough to network-facing bridges** (`treebird-chat-wizard`, `treebird-chat-session`, `treebird-chat-add-bridge`, `bridge-agent-base`, `treebird-chat-toak-bridge`) — bridge subprocesses inherited every credential in the parent env (vault keys, TOAK/OpenAI/Anthropic tokens). Added `spawnEnv()` allowlist helper in `lib/config.mjs` (base keys `PATH`/`HOME`/`LANG`/`LC_ALL`/`TERM`/`TMPDIR` + explicit per-bridge extras); replaced every `{ ...process.env }` spread and implicit inherit at a bridge spawn site. The earlier `add-bridge` denylist (`/^ENVOAK_|^SUPABASE_/`) is superseded by this allowlist.
+- **Session registry written world-readable** (`lib/config.mjs`) — `~/.treebird-chat/sessions.json` holds `smalltoakToken` but was written with default `0o644`. Now written `0o600` (dir `0o700`), with a `chmodSync` to re-assert the mode on pre-existing files.
+- **Inconsistent agent-name validation** — only `add-bridge` validated agent names; `treebird-chat-allow`/`-deny`/`-invite`, `corrwait --as`, and the TUI `/invite` accepted arbitrary strings. Added shared `AGENT_NAME_RE` + `assertAgentName`/`isValidAgentName` to `lib/identity.mjs` (anchored: starts with a letter, `[A-Za-z0-9_-]`, max 64); enforced in `verifyAgentIdentity` and at every agent-name entry point.
+- **Path traversal via agent name in cursor file** (`lib/access.mjs`) — `cursorPath` interpolated the agent name into a write path unchecked; `assertAgentName` now guards it.
+- **Path traversal via session name in filename** (`treebird-chat-wizard`, `treebird-chat-session`) — user-supplied session name flowed into `CONSORTIUM_<name>_<date>.md` unsanitized. Sanitized with a `safeFileSegment` helper before filename use.
+- **Missing `child.on('error')` on detached spawns** (`treebird-chat-wizard`, `treebird-chat-session`) — `ENOENT`/`EACCES` on a detached bridge spawn crashed the parent. Added `error` handlers to every detached spawn.
+- **Unhandled rejection in TUI input handler** (`bin/treebird-chat.mjs`) — the async `rl.on('line')` handler had no `try/catch`; an `appendLines` lock timeout surfaced as an unhandled rejection. Wrapped the handler body.
+- **Silent ACL-grant failures in wizard** — `treebird-chat-wizard`'s `allow()` discarded the `spawnSync` result; failed grants are now surfaced via `warn()`.
+
 - **Path traversal via `--as` flag** (`treebird-chat-add-bridge`) — agent name passed to `resolve()` without validation allowed directory traversal. Fixed with `AGENT_RE = /^[a-z0-9_-]+$/i` allowlist enforced before any path use.
 - **Newline injection in writer** (`lib/writer.mjs`) — agent name embedded in flat-format chat line `[HH:MM agent] msg`; a `\r\n` in the name split the line header. Sanitized at write time with `.replace(/[\r\n]/g, '')`.
 - **Newline injection in `--write` message** (`bin/corrwait.mjs`) — `\r\n` in the message payload split the header line in structured output. Stripped at write time.

@@ -5,10 +5,15 @@
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { setAllowed, aclPath } from '../lib/access.mjs';
+import { isValidAgentName } from '../lib/identity.mjs';
 
 const [file, agent] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 if (!file || !agent) {
   process.stderr.write('usage: treebird-chat-deny <CORR_file> <agent>\n');
+  process.exit(1);
+}
+if (!isValidAgentName(agent)) {
+  process.stderr.write(`Invalid agent name "${agent}": letters/digits/hyphens/underscores, must start with a letter, max 64 chars.\n`);
   process.exit(1);
 }
 

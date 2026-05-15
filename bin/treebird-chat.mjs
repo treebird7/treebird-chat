@@ -14,7 +14,7 @@ import { appendLines } from '../lib/writer.mjs';
 import { open } from 'node:fs/promises';
 import readline from 'node:readline';
 import chokidar from 'chokidar';
-import { verifyAgentIdentity } from '../lib/identity.mjs';
+import { verifyAgentIdentity, isValidAgentName } from '../lib/identity.mjs';
 import { isAllowed, readAcl, aclPath, setAllowed } from '../lib/access.mjs';
 import { FLAT_RE } from '../lib/watcher.mjs';
 import { findSessionByPath } from '../lib/config.mjs';
@@ -156,6 +156,7 @@ const shutdown = async (msg) => {
 };
 
 rl.on('line', async (raw) => {
+ try {
   const text = raw.trim();
   if (!text) { rl.prompt(); return; }
   if (text === '/end') { shutdown('left chat'); return; }
@@ -164,6 +165,11 @@ rl.on('line', async (raw) => {
     const invitee = text.slice(8).trim();
     if (!invitee) {
       process.stdout.write(`${DIM}usage: /invite <agent>${RESET}\n`);
+      rl.prompt();
+      return;
+    }
+    if (!isValidAgentName(invitee)) {
+      process.stdout.write(`${DIM}invalid agent name "${invitee}" — letters/digits/hyphens/underscores, must start with a letter${RESET}\n`);
       rl.prompt();
       return;
     }
@@ -192,6 +198,10 @@ rl.on('line', async (raw) => {
 
   await appendLines(filePath, agent, lines);
   rl.prompt();
+ } catch (err) {
+  process.stderr.write(`[tui] send error: ${err.message}\n`);
+  rl.prompt();
+ }
 });
 
 rl.on('close', () => shutdown('left chat'));

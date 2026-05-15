@@ -5,6 +5,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readAcl } from '../lib/access.mjs';
+import { isValidAgentName } from '../lib/identity.mjs';
+import { spawnEnv } from '../lib/config.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -164,9 +166,8 @@ async function main() {
     process.exit(1);
   }
 
-  const AGENT_RE = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
-  if (!AGENT_RE.test(agent)) {
-    process.stderr.write(`Invalid --as value: "${agent}". Must be letters/digits/hyphens/underscores, max 32 chars.\n`);
+  if (!isValidAgentName(agent)) {
+    process.stderr.write(`Invalid --as value: "${agent}". Must be letters/digits/hyphens/underscores, start with a letter, max 64 chars.\n`);
     process.exit(1);
   }
 
@@ -207,14 +208,12 @@ async function main() {
   if (url) childArgs.push('--url', url);
   if (model) childArgs.push('--model', model);
 
-  const bridgeEnv = Object.fromEntries(
-    Object.entries(process.env).filter(([k]) => !/^ENVOAK_|^SUPABASE_/.test(k))
-  );
-
+  // Minimal allowlist env — the generated bridge does outbound fetch and must
+  // not inherit vault keys / API tokens. URL + model arrive as CLI args.
   const child = spawn(process.execPath, childArgs, {
     detached: true,
     stdio: 'ignore',
-    env: bridgeEnv,
+    env: spawnEnv(),
   });
   child.on('error', (err) => {
     process.stderr.write(`Failed to start ${agent}-bridge: ${err.message}\n`);

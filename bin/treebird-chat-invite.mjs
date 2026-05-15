@@ -6,6 +6,7 @@
 
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
+import { isValidAgentName } from '../lib/identity.mjs';
 
 function parseArgs(argv) {
   const args = { file: null, agent: null, smalltoakUrl: null, chatId: null };
@@ -24,6 +25,10 @@ function parseArgs(argv) {
 const { file, agent, smalltoakUrl, chatId } = parseArgs(process.argv.slice(2));
 if (!file || !agent) {
   process.stderr.write('usage: treebird-chat-invite <file> <agent> [--smalltoak-url URL] [--chat-id ID]\n');
+  process.exit(1);
+}
+if (!isValidAgentName(agent)) {
+  process.stderr.write(`Invalid agent name "${agent}": letters/digits/hyphens/underscores, must start with a letter, max 64 chars.\n`);
   process.exit(1);
 }
 

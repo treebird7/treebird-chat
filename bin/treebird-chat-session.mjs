@@ -18,6 +18,7 @@ import { resolve, dirname } from 'node:path';
 import { existsSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn } from 'node:child_process';
+import { spawnEnv } from '../lib/config.mjs';
 
 const __dirname  = dirname(fileURLToPath(import.meta.url));
 const ALLOW_BIN  = resolve(__dirname, 'treebird-chat-allow.mjs');
@@ -66,9 +67,17 @@ function startGemmaBridge(filePath) {
   const child = spawn(process.execPath, [GEMMA_BIN, filePath], {
     stdio: ['ignore', 'ignore', 'inherit'],
     detached: true,
+    env: spawnEnv(),
   });
+  child.on('error', (err) => process.stderr.write(`  ⚠️  gemma-bridge failed to start: ${err.message}\n`));
   child.unref();
   return child.pid;
+}
+
+// Strip path separators / traversal from a user-supplied name before it
+// becomes part of a filename.
+function safeFileSegment(s) {
+  return String(s).replace(/[^\w.-]+/g, '_').replace(/^\.+/, '_') || 'session';
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -76,7 +85,7 @@ function startGemmaBridge(filePath) {
 const { name, invites, owner, dir, join } = parseArgs(process.argv.slice(2));
 
 const sessionName = name || today();
-const fileName    = `CONSORTIUM_${sessionName}_${today()}.md`;
+const fileName    = `CONSORTIUM_${safeFileSegment(sessionName)}_${today()}.md`;
 const filePath    = resolve(dir, fileName);
 
 // Create dir + file

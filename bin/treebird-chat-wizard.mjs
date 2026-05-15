@@ -13,9 +13,9 @@
 import { resolve, dirname } from 'node:path';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { spawnSync, spawn, execSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import readline from 'node:readline';
-import { loadEnv, saveSession, loadSession } from '../lib/config.mjs';
+import { loadEnv, saveSession, loadSession, spawnEnv } from '../lib/config.mjs';
 
 // Load .env / ~/.treebird-chat/.env before anything reads process.env
 loadEnv();
@@ -54,6 +54,12 @@ function warn(msg)    { process.stdout.write(`${Y}  ⚠ ${msg}${R}\n`); }
 function section(msg) { process.stdout.write(`\n${B}${msg}${R}\n`); }
 
 function today() { return new Date().toISOString().slice(0, 10); }
+
+// Strip path separators / traversal from a user-supplied name before it
+// becomes part of a filename.
+function safeFileSegment(s) {
+  return String(s).replace(/[^\w.-]+/g, '_').replace(/^\.+/, '_') || 'session';
+}
 function nowHHMM() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
@@ -243,7 +249,7 @@ async function main() {
   info(`Default: ${DEFAULT_DIR}`);
   const dirRaw = await askDefault('Directory', DEFAULT_DIR);
   const dir = resolve(dirRaw.replace(/^~/, process.env.HOME));
-  const fileName = `CONSORTIUM_${name}_${today()}.md`;
+  const fileName = `CONSORTIUM_${safeFileSegment(name)}_${today()}.md`;
   const filePath = resolve(dir, fileName);
   info(`→ ${filePath}`);
 
@@ -383,15 +389,21 @@ async function main() {
   ok(`Created ${filePath}`);
 
   // Allow owner + agents
-  const allow = (agent) => spawnSync(
-    process.execPath, [ALLOW_BIN, filePath, agent, '--owner', humanName],
-    { stdio: 'pipe' }
-  );
-  allow(humanName);
-  ok(`ACL: ${humanName} (you)`);
+  const allow = (agent) => {
+    const result = spawnSync(
+      process.execPath, [ALLOW_BIN, filePath, agent, '--owner', humanName],
+      { stdio: 'pipe' }
+    );
+    if (result.status !== 0) {
+      const detail = (result.stderr?.toString() || '').trim();
+      warn(`ACL grant failed for ${agent}${detail ? ` — ${detail}` : ''}`);
+      return false;
+    }
+    return true;
+  };
+  if (allow(humanName)) ok(`ACL: ${humanName} (you)`);
   for (const agent of invites) {
-    allow(agent);
-    ok(`ACL: ${agent}`);
+    if (allow(agent)) ok(`ACL: ${agent}`);
   }
 
   // Start gemma-bridge if needed
@@ -399,8 +411,9 @@ async function main() {
     const child = spawn(
       process.execPath,
       [GEMMA_BIN, filePath, '--lm-studio', lmStudioUrl, '--model', lmModel],
-      { stdio: ['ignore', 'ignore', 'inherit'], detached: true }
+      { stdio: ['ignore', 'ignore', 'inherit'], detached: true, env: spawnEnv() }
     );
+    child.on('error', (err) => warn(`gemma-bridge failed to start: ${err.message}`));
     child.unref();
     ok(`gemma-bridge started (PID ${child.pid})`);
   }
@@ -410,12 +423,17 @@ async function main() {
 
   // Start smalltoak bridge if requested
   if (smalltoakUrl && smalltoakToken && chatId) {
-    const env = { ...process.env, SMALLTOAK_TOKEN: smalltoakToken };
+    const env = spawnEnv({
+      SMALLTOAK_TOKEN: smalltoakToken,
+      TREEBIRD_MACHINE: process.env.TREEBIRD_MACHINE,
+      BIRDCHAT_BRIDGE_POLL_MS: process.env.BIRDCHAT_BRIDGE_POLL_MS,
+    });
     const child = spawn(
       process.execPath,
       [BRIDGE_BIN, chatId, filePath, '--smalltoak-url', smalltoakUrl],
       { stdio: ['ignore', 'ignore', 'inherit'], detached: true, env }
     );
+    child.on('error', (err) => warn(`smalltoak bridge failed to start: ${err.message}`));
     child.unref();
     ok(`smalltoak bridge started (PID ${child.pid})  chat-id: ${chatId}`);
   }
@@ -471,13 +489,17 @@ async function joinSession(chatId) {
 
   // Start smalltoak bridge if session uses it
   if (smalltoakUrl) {
-    const token = process.env.SMALLTOAK_TOKEN || '';
-    const env = { ...process.env, SMALLTOAK_TOKEN: token };
+    const env = spawnEnv({
+      SMALLTOAK_TOKEN: process.env.SMALLTOAK_TOKEN || '',
+      TREEBIRD_MACHINE: process.env.TREEBIRD_MACHINE,
+      BIRDCHAT_BRIDGE_POLL_MS: process.env.BIRDCHAT_BRIDGE_POLL_MS,
+    });
     const child = spawn(
       process.execPath,
       [BRIDGE_BIN, chatId, filePath, '--smalltoak-url', smalltoakUrl],
       { stdio: ['ignore', 'ignore', 'inherit'], detached: true, env }
     );
+    child.on('error', (err) => process.stderr.write(`bridge failed to start: ${err.message}\n`));
     child.unref();
     process.stdout.write(`bridge started (PID ${child.pid})  chat-id: ${chatId}\n`);
   }
