@@ -1,0 +1,17 @@
+# Internal / private files — not needed by npm users
+CLAUDE.md
+FUTURE.md
+CHANGELOG.md
+SPEC_*.md
+PLAN_*.md
+STATE_*.json
+.pending_task.md
+.spidersan/
+skills/
+hooks/
+test/
+bin/memosan-bridge.mjs
+bin/treebird-chat-toak-bridge.mjs
+*.log
+*.jsonl
+.DS_Store

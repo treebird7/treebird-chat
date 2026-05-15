@@ -1,8 +1,14 @@
 {
   "name": "treebird-chat",
-  "version": "0.1.2",
-  "description": "Blocking chat CLI for human + multi-agent correspondence on shared CORR_*.md files",
+  "version": "0.2.0",
+  "description": "Terminal chat CLI for humans and AI agents — shared markdown file, zero server, real-time",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/treebird7/treebird-chat"
+  },
+  "keywords": ["chat", "cli", "ai", "agents", "markdown", "tui", "multi-agent"],
+  "homepage": "https://github.com/treebird7/treebird-chat#readme",
   "bin": {
     "corrwait": "bin/corrwait.mjs",
     "treebird-chat": "bin/treebird-chat.mjs",
