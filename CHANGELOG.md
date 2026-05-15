@@ -1,6 +1,22 @@
 # Changelog
 
+## 0.2.2 — 2026-05-15
+
+### Added
+
+- **`/invite <agent>` inline invite block** (`bin/treebird-chat.mjs`) — `/invite` in the TUI now prints a ready-to-copy invite block immediately after adding the agent to the ACL. Prints cross-machine smalltoak instructions if the session was started with a chatId/smalltoakUrl, or local `corrwait` instructions otherwise.
+- **`~/.treebird-chat/.env` support** (`lib/config.mjs`) — `loadEnv()` now checks `~/.treebird-chat/.env` as a canonical user-level config location (after `./.env`, before the process environment). Lets non-envoak users set `SMALLTOAK_TOKEN`, `SMALLTOAK_SERVER_URL`, etc. once and forget it.
+- **Wizard skips smalltoak prompts when env vars are set** (`bin/treebird-chat-wizard.mjs`) — if `SMALLTOAK_SERVER_URL` is already in env, the wizard auto-selects the smalltoak transport and skips prompting for URL and token; only asks for chat-id. Avoids re-entering config that's already in `.env`.
+
+### Fixed
+
+- **Wizard always prompted for smalltoak URL/token** — even with `SMALLTOAK_SERVER_URL` set in env, the wizard asked for it again. Now uses env values silently.
+
 ## Unreleased
+
+### Fixed
+
+- **Smalltoak bridge echo storm** (`lib/bridge.mjs`, `lib/markdown-archive.mjs`) — the bridge's self-echo guard could fail to recognize a line it had just appended, treating its own echo as a fresh local message and re-posting it in a loop (observed: one chat line re-appended 100+ times). Root cause: `selfInsertedContent` was a `Set`, which collapses duplicate line content — once one identical self-line was consumed, a second went unrecognized whenever the line-number guard also missed. Exact line-number attribution is impossible when non-locking writers (a raw `printf >>`) share the file, so the content guard is now a counting multiset (one credit per self-append, retired on match). `markdown-archive#appendLine` additionally scans for its appended line from the end of the file, so a duplicate earlier copy is never mistaken for the new line.
 
 ### Security
 
