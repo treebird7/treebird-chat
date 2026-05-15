@@ -251,15 +251,27 @@ async function main() {
   header(3, 'Transport');
   info('Local: chat file only (Syncthing/Dropbox handles multi-machine sync).');
   info('Bridge: also start a smalltoak bridge for real-time remote access.');
-  const transport = await askChoice('Transport', ['local', 'local + smalltoak bridge'], 'local');
+  const defaultTransport = process.env.SMALLTOAK_SERVER_URL ? 'local + smalltoak bridge' : 'local';
+  const transport = await askChoice('Transport', ['local', 'local + smalltoak bridge'], defaultTransport);
 
   let smalltoakUrl = null;
   let smalltoakToken = null;
   let chatId = null;
   if (transport.includes('smalltoak')) {
-    smalltoakUrl   = await askDefault('Smalltoak URL', process.env.SMALLTOAK_SERVER_URL || 'http://localhost:3000');
-    smalltoakToken = await askDefault('Smalltoak token', process.env.SMALLTOAK_TOKEN   || '');
-    chatId         = await askDefault('Chat ID', name.replace(/\s+/g, '-').toLowerCase());
+    // Use env values silently if available; only prompt for missing ones.
+    smalltoakUrl = process.env.SMALLTOAK_SERVER_URL || null;
+    if (!smalltoakUrl) {
+      smalltoakUrl = await askDefault('Smalltoak URL', 'http://localhost:3000');
+    } else {
+      info(`Smalltoak URL: ${smalltoakUrl}`);
+    }
+    smalltoakToken = process.env.SMALLTOAK_TOKEN || null;
+    if (!smalltoakToken) {
+      smalltoakToken = await askDefault('Smalltoak token', '');
+    } else {
+      info('Smalltoak token: (from env)');
+    }
+    chatId = await askDefault('Chat ID', name.replace(/\s+/g, '-').toLowerCase());
   }
 
   // ── Step 4: Agents ──────────────────────────────────────────────────────────
