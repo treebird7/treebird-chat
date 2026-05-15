@@ -18,6 +18,7 @@ import chokidar from 'chokidar';
 import { verifyAgentIdentity } from '../lib/identity.mjs';
 import { isAllowed, readAcl, aclPath, readCursor, writeCursor } from '../lib/access.mjs';
 import { appendLine } from '../lib/writer.mjs';
+import { loadEnv, loadSession } from '../lib/config.mjs';
 import {
   snapshotAtCursor,
   snapshot,
@@ -26,11 +27,14 @@ import {
   endMarkerPath,
 } from '../lib/watcher.mjs';
 
+loadEnv();
+
 const EXIT = { WAKE: 0, END: 1, TIMEOUT: 2, REVOKED: 3, ERROR: 4 };
 
 function parseArgs(argv) {
   const args = {
     file: null,
+    session: null,
     endWord: '/end',
     timeoutSec: 540,
     as: null,
@@ -43,6 +47,7 @@ function parseArgs(argv) {
     if (a === '--end-word') args.endWord = argv[++i];
     else if (a === '--timeout') args.timeoutSec = parseInt(argv[++i], 10);
     else if (a === '--as') args.as = argv[++i];
+    else if (a === '--session') args.session = argv[++i];
     else if (a === '--on-mention') args.onMention = true;
     else if (a === '--write') {
       args.writeMode = true;
@@ -58,11 +63,23 @@ function emit(reason, payload = {}) {
 }
 
 async function main() {
-  const { file, endWord, timeoutSec, as, onMention, write, writeMode: isWriteMode } =
+  const { file: rawFile, session, endWord, timeoutSec, as, onMention, write, writeMode: isWriteMode } =
     parseArgs(process.argv.slice(2));
+
+  // --session <chat-id>: look up file path from session registry
+  let file = rawFile;
+  if (!file && session) {
+    const saved = loadSession(session);
+    if (!saved) {
+      process.stderr.write(`No saved session "${session}". Run treebird-chat-wizard to create one.\n`);
+      process.exit(EXIT.ERROR);
+    }
+    file = saved.filePath;
+  }
+
   if (!file) {
     process.stderr.write(
-      'usage: corrwait <CORR_file> [--as <agent>] [--write <message>] [--on-mention] [--end-word "/end"] [--timeout 540]\n'
+      'usage: corrwait <CORR_file> [--session <chat-id>] [--as <agent>] [--write <message>] [--on-mention] [--end-word "/end"] [--timeout 540]\n'
     );
     process.exit(EXIT.ERROR);
   }
