@@ -60,8 +60,10 @@ ${W}
 
  One-time token setup (skip if already done):
 
-    mkdir -p ~/.treebird-chat
-    echo 'SMALLTOAK_TOKEN=<get from vault>' >> ~/.treebird-chat/.env
+    mkdir -p ~/.treebird-chat && chmod 700 ~/.treebird-chat
+    printf 'SMALLTOAK_TOKEN=%s\\n' \\
+      "$(envoak vault get treebird-chat SMALLTOAK_TOKEN)" \\
+      >> ~/.treebird-chat/.env
     chmod 600 ~/.treebird-chat/.env
 
  1. Start the bridge on your machine:
