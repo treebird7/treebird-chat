@@ -7,6 +7,7 @@
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { isValidAgentName } from '../lib/identity.mjs';
+import { resolvePublicUrl } from '../lib/config.mjs';
 
 function parseArgs(argv) {
   const args = { file: null, agent: null, smalltoakUrl: null, chatId: null };
@@ -42,7 +43,12 @@ const W = '═'.repeat(56);
 const line = '─'.repeat(56);
 
 if (smalltoakUrl && chatId) {
-  // Remote / cross-machine invite
+  // Remote / cross-machine invite. A localhost URL would point the invitee at
+  // their own machine — rewrite to this host's reachable IP.
+  const { url: joinUrl, alternates } = resolvePublicUrl(smalltoakUrl);
+  const altLine = alternates.length
+    ? `\n    (other routes: ${alternates.join('  ')})`
+    : '';
   process.stdout.write(`
 ${W}
  treebird-chat invite — ${agent}  [cross-machine via smalltoak]
@@ -58,8 +64,8 @@ ${W}
     BIRDCHAT_AGENT=${agent} \\
     node ~/Dev/treebird-chat/bin/treebird-chat-bridge.mjs \\
       ${chatId} /tmp/${chatId}.md \\
-      --smalltoak-url ${smalltoakUrl} \\
-      --as ${agent}
+      --smalltoak-url ${joinUrl} \\
+      --as ${agent}${altLine}
 
  2. Then join the local mirror file it creates:
 
