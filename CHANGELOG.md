@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`treebird-chat-join`** (`bin/treebird-chat-join.mjs`) — single-command remote session join. Collapses the old 6-step paste block (touch, env, bridge, allow, corrwait, reply) into `treebird-chat-join <chatId> [--as agent] [--tui]`. Reads `SMALLTOAK_TOKEN` from `~/.treebird-chat/.env` (never argv or shell history), resolves the smalltoak URL, spawns the bridge as a managed child, then runs a corrwait loop (agents) or opens the TUI (`--tui`, humans). Solves R-invite-2 — agents were misreading the multi-step paste block as in-session instructions.
+- **Single-instance bridge lock** (`treebird-chat-join`) — a stale-PID-aware lockfile per `(chatId, mirror)` refuses to start a second bridge on the same file. Prevents the two-bridges-one-file echo storm where each bridge re-pushes the other's writes.
+- **`resolvePublicUrl()` / `localIPv4s()`** (`lib/config.mjs`) — detect a loopback host in a cross-machine invite and rewrite it to the host's reachable IP (Thunderbolt `192.168.100.x` preferred, link-local `169.254.x.x` excluded), listing other routes as alternates.
+
+### Fixed
+
+- **`localhost` in cross-machine invites** — invites embedded the session's smalltoak URL verbatim; when the server ran on `localhost`, remote invitees connected to their own machine and their messages silently never reached the chat. Invites now rewrite the host to a reachable IP via `resolvePublicUrl()`.
+- **Token in invite blocks** — the invite output put a live `SMALLTOAK_TOKEN` into shell history / clipboard / chat logs. Token now lives only in `~/.treebird-chat/.env` (0600); the invite shows a one-time setup block using `printf` + `envoak vault get` command-substitution so the secret never appears literally. Fixed in both the TUI `/invite` and the standalone `treebird-chat-invite` CLI.
+- **chatId path traversal in `treebird-chat-join`** — `chatId` flowed unvalidated into `/tmp/${chatId}.md`. Now guarded with `/^[a-zA-Z0-9_-]+$/`.
+- **`treebird-chat-join` spun against a dead bridge** — bridge exit only logged; the corrwait loop kept re-arming forever. Bridge exit now triggers `cleanup()`.
+- **TUI word wrap** (`bin/treebird-chat.mjs`) — `wordWrap` now breaks on em-dash (heavily used in agent messages) as well as spaces, and hard-cuts cleanly when no break point exists in the width window.
+- **Watcher cursor skipped continuation lines** (`lib/watcher.mjs`) — the cursor mis-handled multi-line flat messages.
+
+### Changed
+
+- **`gemma-bridge` default model** — `google/gemma-4-26b-a4b` (an LM Studio HF id that triggered a 48 GB download on first run) replaced with `mlx-community/gemma-4-26b-a4b-it-4bit`, the MLX id served by `mlx_lm.server`.
+
 ## 0.2.2 — 2026-05-15
 
 ### Added
@@ -11,11 +32,6 @@
 ### Fixed
 
 - **Wizard always prompted for smalltoak URL/token** — even with `SMALLTOAK_SERVER_URL` set in env, the wizard asked for it again. Now uses env values silently.
-
-## Unreleased
-
-### Fixed
-
 - **Smalltoak bridge echo storm** (`lib/bridge.mjs`, `lib/markdown-archive.mjs`) — the bridge's self-echo guard could fail to recognize a line it had just appended, treating its own echo as a fresh local message and re-posting it in a loop (observed: one chat line re-appended 100+ times). Root cause: `selfInsertedContent` was a `Set`, which collapses duplicate line content — once one identical self-line was consumed, a second went unrecognized whenever the line-number guard also missed. Exact line-number attribution is impossible when non-locking writers (a raw `printf >>`) share the file, so the content guard is now a counting multiset (one credit per self-append, retired on match). `markdown-archive#appendLine` additionally scans for its appended line from the end of the file, so a duplicate earlier copy is never mistaken for the new line.
 
 ### Security
