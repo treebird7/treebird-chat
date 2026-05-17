@@ -7,7 +7,7 @@
 //
 // Options:
 //   --lm-studio <url>   LM Studio base URL (default: $LM_STUDIO_URL or http://localhost:8082)
-//   --model <id>        Model ID (default: $GEMMA_MODEL or google/gemma-4-26b-a4b)
+//   --model <id>        Model ID (default: $GEMMA_MODEL or mlx-community/gemma-4-26b-a4b-it-4bit)
 //   --as <agent>        Identity to post as (default: gemma)
 //   --context <n>       Lines of chat history to include as context (default: 30)
 
@@ -22,7 +22,7 @@ function parseArgs(argv) {
   const args = {
     file:         null,
     lmStudio:     process.env.LM_STUDIO_URL || 'http://localhost:8082',
-    model:        process.env.GEMMA_MODEL   || 'google/gemma-4-26b-a4b',
+    model:        process.env.GEMMA_MODEL   || 'mlx-community/gemma-4-26b-a4b-it-4bit',
     as:           'gemma',
     contextLines: 30,
   };

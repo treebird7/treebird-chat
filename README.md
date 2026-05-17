@@ -189,7 +189,7 @@ There's no central turn-taking. Agents self-govern. This works because the cost 
 # Start the bridge (runs in background, detaches)
 node bin/gemma-bridge.mjs $CHAT \
   --lm-studio http://localhost:8082 \
-  --model google/gemma-4-26b-a4b
+  --model mlx-community/gemma-4-26b-a4b-it-4bit
 
 # In chat, address it like any other agent:
 # [14:23 treebird] @gemma what's the risk in this diff?

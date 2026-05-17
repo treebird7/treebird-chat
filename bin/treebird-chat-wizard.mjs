@@ -309,7 +309,7 @@ async function main() {
 
   // ── Step 5: Local LLM config ────────────────────────────────────────────────
   let lmStudioUrl = 'http://localhost:8082';
-  let lmModel = 'google/gemma-4-26b-a4b';
+  let lmModel = process.env.GEMMA_MODEL || 'mlx-community/gemma-4-26b-a4b-it-4bit';
 
   if (hasGemma) {
     header(5, 'Local LLM config');
