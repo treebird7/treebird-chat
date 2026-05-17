@@ -179,12 +179,13 @@ rl.on('line', async (raw) => {
     const W = '═'.repeat(56);
     const session = findSessionByPath(filePath);
     if (session?.smalltoakUrl && session?.chatId) {
-      const { chatId, smalltoakUrl } = session;
-      // localhost in a cross-machine invite points the invitee at their own
-      // box — rewrite to this host's reachable IP.
+      const { chatId, smalltoakUrl, smalltoakToken } = session;
       const { url: joinUrl, alternates } = resolvePublicUrl(smalltoakUrl);
-      const altLine = alternates.length ? `\n    (other routes: ${alternates.join('  ')})` : '';
-      process.stdout.write(`\n${W}\n treebird-chat invite — ${invitee}  [cross-machine via smalltoak]\n${W}\n\n 1. Start the bridge on your machine:\n\n    SMALLTOAK_TOKEN=<your-token> \\\n    node ~/Dev/treebird-chat/bin/treebird-chat-bridge.mjs \\\n      ${chatId} /tmp/${chatId}.md \\\n      --smalltoak-url ${joinUrl}${altLine}\n\n 2. Then join the local mirror file it creates:\n\n    corrwait /tmp/${chatId}.md --as ${invitee} --timeout 540\n\n 3. Reply with:\n\n    printf '[%s ${invitee}] your reply\\n' "$(date +%H:%M)" >> /tmp/${chatId}.md\n\n${W}\n\n`);
+      const altLine = alternates.length ? `\n    # alternates: ${alternates.join('  ')}` : '';
+      const tokenLine = smalltoakToken
+        ? `    SMALLTOAK_TOKEN=${smalltoakToken} \\\n`
+        : `    SMALLTOAK_TOKEN=<your-token> \\\n`;
+      process.stdout.write(`\n${W}\n treebird-chat invite — ${invitee}  [cross-machine via smalltoak]\n${W}\n\n 1. Start the bridge on your machine:\n\n    touch /tmp/${chatId}.md\n    ${tokenLine}    BIRDCHAT_AGENT=${invitee} \\\n    node ~/Dev/treebird-chat/bin/treebird-chat-bridge.mjs \\\n      ${chatId} /tmp/${chatId}.md \\\n      --smalltoak-url ${joinUrl} \\\n      --as ${invitee}${altLine}\n\n 2. Watch for messages:\n\n    node ~/Dev/treebird-chat/bin/corrwait.mjs /tmp/${chatId}.md --as ${invitee} --timeout 540\n\n 3. Reply with:\n\n    printf '[%s ${invitee}] your reply\\n' "$(date +%H:%M)" >> /tmp/${chatId}.md\n\n${W}\n\n`);
     } else {
       process.stdout.write(`\n${W}\n treebird-chat invite — ${invitee}\n${W}\n\n File: ${filePath}\n\n Wait for messages:\n\n   corrwait ${filePath} --as ${invitee} --timeout 540\n\n When woken, reply:\n\n   printf '[%s ${invitee}] your reply\\n' "$(date +%H:%M)" >> ${filePath}\n\n${W}\n\n`);
     }

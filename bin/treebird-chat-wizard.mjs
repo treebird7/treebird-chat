@@ -14,6 +14,7 @@ import { resolve, dirname } from 'node:path';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn } from 'node:child_process';
+import os from 'node:os';
 import readline from 'node:readline';
 import { loadEnv, saveSession, loadSession, spawnEnv } from '../lib/config.mjs';
 
@@ -54,6 +55,15 @@ function warn(msg)    { process.stdout.write(`${Y}  ⚠ ${msg}${R}\n`); }
 function section(msg) { process.stdout.write(`\n${B}${msg}${R}\n`); }
 
 function today() { return new Date().toISOString().slice(0, 10); }
+
+function getLanIp() {
+  for (const ifaces of Object.values(os.networkInterfaces())) {
+    for (const iface of ifaces) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+    }
+  }
+  return '127.0.0.1';
+}
 
 // Strip path separators / traversal from a user-supplied name before it
 // becomes part of a filename.
@@ -267,7 +277,7 @@ async function main() {
     // Use env values silently if available; only prompt for missing ones.
     smalltoakUrl = process.env.SMALLTOAK_SERVER_URL || null;
     if (!smalltoakUrl) {
-      smalltoakUrl = await askDefault('Smalltoak URL', 'http://localhost:3000');
+      smalltoakUrl = await askDefault('Smalltoak URL', `http://${getLanIp()}:3000`);
     } else {
       info(`Smalltoak URL: ${smalltoakUrl}`);
     }
