@@ -32,6 +32,10 @@ if (!chatId) {
   process.stderr.write('usage: treebird-chat-join <chatId> [--smalltoak-url URL] [--as agent] [--tui]\n');
   process.exit(1);
 }
+if (!/^[a-zA-Z0-9_-]+$/.test(chatId)) {
+  process.stderr.write('Invalid chatId: must match [a-zA-Z0-9_-]+\n');
+  process.exit(1);
+}
 
 let identity;
 try { identity = verifyAgentIdentity(asArg); }
@@ -80,9 +84,6 @@ const bridge = spawn(
 );
 bridge.stdout.on('data', d => process.stderr.write(`[bridge] ${d}`));
 bridge.stderr.on('data', d => process.stderr.write(`[bridge] ${d}`));
-bridge.on('exit', code => {
-  if (code !== 0 && code !== null) process.stderr.write(`[bridge] exited ${code}\n`);
-});
 
 const cleanup = (msg) => {
   if (msg) process.stderr.write(`[join] ${msg}\n`);
@@ -91,6 +92,10 @@ const cleanup = (msg) => {
 };
 process.on('SIGINT', () => cleanup('leaving'));
 process.on('SIGTERM', () => cleanup('terminated'));
+
+bridge.on('exit', code => {
+  cleanup(code ? `bridge exited ${code}` : 'bridge closed');
+});
 
 // give bridge a moment to connect before listening
 await new Promise(r => setTimeout(r, 900));
