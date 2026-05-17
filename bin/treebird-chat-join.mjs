@@ -6,7 +6,8 @@
 // Default: spawns bridge in background, runs corrwait loop in foreground.
 // With --tui: spawns bridge then opens the full TUI.
 
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -70,35 +71,71 @@ if (!existsSync(mirrorFile)) writeFileSync(mirrorFile, '');
 // local ACL (pre-T10; bridge is the real gate post-T10)
 setAllowed(mirrorFile, agent, true);
 
+// S1a: single-instance bridge lock — PID-file under ~/.treebird-chat/locks/ (0700)
+// flock(2) is unavailable in plain Node; PID + kill(0) liveness check is equivalent
+// for our threat model (local user, same machine).
+const LOCKS_DIR = join(homedir(), '.treebird-chat', 'locks');
+const lockFile = join(LOCKS_DIR, `${chatId}.pid`);
+mkdirSync(LOCKS_DIR, { recursive: true, mode: 0o700 });
+
+function readLivePid(path) {
+  try {
+    const pid = parseInt(readFileSync(path, 'utf8').trim(), 10);
+    if (!pid || isNaN(pid)) return null;
+    process.kill(pid, 0); // throws ESRCH if dead, EPERM if alive but unowned
+    return pid;
+  } catch (e) {
+    if (e.code === 'EPERM') return parseInt(readFileSync(path, 'utf8').trim(), 10);
+    return null; // ESRCH = stale or unreadable
+  }
+}
+
+const livePid = readLivePid(lockFile);
+
 process.stderr.write(`[join] ${agent} → ${chatId} via ${joinUrl}\n`);
 process.stderr.write(`[join] mirror: ${mirrorFile}\n`);
 
-const bridge = spawn(
-  process.execPath,
-  [join(__dir, 'treebird-chat-bridge.mjs'), chatId, mirrorFile, '--smalltoak-url', joinUrl, '--as', agent],
-  {
-    env: spawnEnv({ SMALLTOAK_TOKEN: token, BIRDCHAT_AGENT: agent }),
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: false,
-  }
-);
-bridge.stdout.on('data', d => process.stderr.write(`[bridge] ${d}`));
-bridge.stderr.on('data', d => process.stderr.write(`[bridge] ${d}`));
+let bridge = null;
+
+if (livePid) {
+  process.stderr.write(`[join] bridge already running (pid ${livePid}), attaching\n`);
+} else {
+  bridge = spawn(
+    process.execPath,
+    [join(__dir, 'treebird-chat-bridge.mjs'), chatId, mirrorFile, '--smalltoak-url', joinUrl, '--as', agent],
+    {
+      env: spawnEnv({ SMALLTOAK_TOKEN: token, BIRDCHAT_AGENT: agent }),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false,
+    }
+  );
+  bridge.stdout.on('data', d => process.stderr.write(`[bridge] ${d}`));
+  bridge.stderr.on('data', d => process.stderr.write(`[bridge] ${d}`));
+  bridge.on('spawn', () => {
+    writeFileSync(lockFile, String(bridge.pid), { mode: 0o600 });
+  });
+}
 
 const cleanup = (msg) => {
   if (msg) process.stderr.write(`[join] ${msg}\n`);
-  try { bridge.kill(); } catch {}
+  if (bridge) {
+    try { rmSync(lockFile); } catch {}
+    try { bridge.kill(); } catch {}
+  }
   process.exit(0);
 };
 process.on('SIGINT', () => cleanup('leaving'));
 process.on('SIGTERM', () => cleanup('terminated'));
 
-bridge.on('exit', code => {
-  cleanup(code ? `bridge exited ${code}` : 'bridge closed');
-});
+if (bridge) {
+  bridge.on('exit', code => {
+    try { rmSync(lockFile); } catch {}
+    cleanup(code ? `bridge exited ${code}` : 'bridge closed');
+  });
+}
 
-// give bridge a moment to connect before listening
-await new Promise(r => setTimeout(r, 900));
+// give bridge a moment to connect before listening (skip when attaching)
+if (bridge) await new Promise(r => setTimeout(r, 900));
 
 if (tui) {
   process.stderr.write('[join] opening TUI ...\n');
