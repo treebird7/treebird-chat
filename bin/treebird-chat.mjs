@@ -107,10 +107,20 @@ function wordWrap(text, width, indent) {
   const parts = [];
   let remaining = text;
   while (remaining.length > width) {
-    const cut = remaining.lastIndexOf(' ', width);
-    const pos = cut > 0 ? cut : width;
-    parts.push(remaining.slice(0, pos));
-    remaining = remaining.slice(pos).trimStart();
+    // Prefer breaking after a space or em-dash within the width limit.
+    let cut = -1;
+    for (let i = Math.min(width, remaining.length - 1); i > 0; i--) {
+      const ch = remaining[i];
+      if (ch === ' ' || ch === '—') { cut = i; break; }
+    }
+    if (cut !== -1) {
+      parts.push(remaining.slice(0, cut).trimEnd());
+      remaining = remaining.slice(cut).trimStart();
+    } else {
+      // No break point found — hard cut at width.
+      parts.push(remaining.slice(0, width));
+      remaining = remaining.slice(width);
+    }
   }
   if (remaining) parts.push(remaining);
   return parts.join(`\n${indent}`);
