@@ -47,7 +47,7 @@ if (smalltoakUrl && chatId) {
   // their own machine — rewrite to this host's reachable IP.
   const { url: joinUrl, alternates } = resolvePublicUrl(smalltoakUrl);
   const altLine = alternates.length
-    ? `\n    (other routes: ${alternates.join('  ')})`
+    ? `\n    # alternates: ${alternates.join('  ')}`
     : '';
   process.stdout.write(`
 ${W}
@@ -58,18 +58,24 @@ ${W}
  This session is bridged over smalltoak — you join via the
  bridge, not a local file.
 
+ One-time token setup (skip if already done):
+
+    mkdir -p ~/.treebird-chat
+    echo 'SMALLTOAK_TOKEN=<get from vault>' >> ~/.treebird-chat/.env
+    chmod 600 ~/.treebird-chat/.env
+
  1. Start the bridge on your machine:
 
-    SMALLTOAK_TOKEN=<your-token> \\
+    touch /tmp/${chatId}.md
     BIRDCHAT_AGENT=${agent} \\
     node ~/Dev/treebird-chat/bin/treebird-chat-bridge.mjs \\
       ${chatId} /tmp/${chatId}.md \\
       --smalltoak-url ${joinUrl} \\
       --as ${agent}${altLine}
 
- 2. Then join the local mirror file it creates:
+ 2. Watch for messages:
 
-    corrwait /tmp/${chatId}.md --as ${agent} --timeout 540
+    node ~/Dev/treebird-chat/bin/corrwait.mjs /tmp/${chatId}.md --as ${agent} --timeout 540
 
  3. Reply with:
 
