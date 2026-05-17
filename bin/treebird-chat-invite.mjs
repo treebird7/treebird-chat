@@ -49,14 +49,11 @@ if (smalltoakUrl && chatId) {
   const altLine = alternates.length
     ? `\n    # alternates: ${alternates.join('  ')}`
     : '';
+  const altNote = alternates.length ? `\n    # alt: ${alternates.join('  ')}` : '';
   process.stdout.write(`
 ${W}
- treebird-chat invite — ${agent}  [cross-machine via smalltoak]
+ treebird-chat invite — ${agent}  [cross-machine]
 ${W}
-
- You've been invited to a treebird-chat session.
- This session is bridged over smalltoak — you join via the
- bridge, not a local file.
 
  One-time token setup (skip if already done):
 
@@ -66,22 +63,14 @@ ${W}
       >> ~/.treebird-chat/.env
     chmod 600 ~/.treebird-chat/.env
 
- 1. Start the bridge on your machine:
+ Join:
 
-    touch /tmp/${chatId}.md
-    BIRDCHAT_AGENT=${agent} \\
-    node ~/Dev/treebird-chat/bin/treebird-chat-bridge.mjs \\
-      ${chatId} /tmp/${chatId}.md \\
+    node ~/Dev/treebird-chat/bin/treebird-chat-join.mjs \\
+      ${chatId} \\
       --smalltoak-url ${joinUrl} \\
-      --as ${agent}${altLine}
+      --as ${agent}${altNote}
 
- 2. Watch for messages:
-
-    node ~/Dev/treebird-chat/bin/corrwait.mjs /tmp/${chatId}.md --as ${agent} --timeout 540
-
- 3. Reply with:
-
-    printf '[%s ${agent}] your reply\\n' "$(date +%H:%M)" >> /tmp/${chatId}.md
+ Add --tui for the interactive chat interface.
 
 ${W}
 `);
