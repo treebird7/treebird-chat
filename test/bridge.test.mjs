@@ -42,9 +42,18 @@ class MemoryCursorAdapter {
 }
 
 class FakeArchive {
-  constructor(initialLines = []) {
+  // `misnumber: true` makes appendLine return a line number that matches no
+  // real line — simulating markdown-archive mis-resolving a duplicate-content
+  // line. Both self-appended lines then miss the line-number guard, so the
+  // content ledger is the sole backstop against an echo storm.
+  // `deferNotify: true` holds back watcher notifications until flushNotify()
+  // is called — letting a test stage several appends before the watch loop
+  // drains them, which makes the duplicate-content race deterministic.
+  constructor(initialLines = [], { misnumber = false, deferNotify = false } = {}) {
     this.lines = [...initialLines];
     this.listeners = new Set();
+    this.misnumber = misnumber;
+    this.deferNotify = deferNotify;
   }
 
   appendLocal(line) {
@@ -53,10 +62,14 @@ class FakeArchive {
     return this.lines.length;
   }
 
+  flushNotify() {
+    this.#notify();
+  }
+
   async appendLine(file, line) {
     this.lines.push(line);
-    this.#notify();
-    return this.lines.length;
+    if (!this.deferNotify) this.#notify();
+    return this.misnumber ? 9999 : this.lines.length;
   }
 
   async *watchForNewLines(file, fromLine = 0, signal) {
@@ -207,6 +220,86 @@ test('bridge dedups local echoes and appends remote messages once', async (t) =>
   assert.equal(
     archive.lines.filter((line) => line === '[12:34 bob] remote hi').length,
     1
+  );
+});
+
+test('bridge appends identical-content remote messages once each and never re-posts them', async (t) => {
+  // Contract: two remote messages with identical text must each be appended
+  // exactly once and neither re-posted to smalltoak — exercising the self-echo
+  // guard under duplicate content with a correctly-numbering archive.
+  const archive = new FakeArchive();
+  const transport = new FakeTransport();
+  const cursorStore = new MemoryCursorAdapter();
+  const bridge = startBridge({ archive, transport, cursorStore });
+
+  t.after(async () => {
+    bridge.controller.abort();
+    await bridge.promise;
+  });
+
+  transport.queueRemote({ agent: 'treesan', text: 'joined', time: '2026-05-03T12:30:00Z' });
+  transport.queueRemote({ agent: 'treesan', text: 'joined', time: '2026-05-03T12:30:00Z' });
+
+  await waitFor(
+    () => archive.lines.filter((line) => line === '[12:30 treesan] joined').length === 2,
+    { message: 'both identical remote lines were not appended' }
+  );
+
+  // Give the bridge a window to (incorrectly) re-post if the guard fails.
+  await sleep(300);
+
+  assert.equal(
+    archive.lines.filter((line) => line === '[12:30 treesan] joined').length,
+    2,
+    'echo storm: identical line was re-appended beyond the two remote messages'
+  );
+  assert.equal(
+    transport.messages.filter((m) => m.sender === transport.sender).length,
+    0,
+    'bridge re-posted a remote line back to smalltoak'
+  );
+});
+
+test('bridge does not echo-storm when duplicate self-lines miss the line-number guard', async (t) => {
+  // Echo-storm regression. Two identical remote messages are appended before
+  // the watch loop drains either (deferNotify), and the archive mis-numbers
+  // both (misnumber) so neither hits the line-number guard. The content guard
+  // is then the only thing standing between the bridge and a re-post loop —
+  // and a plain Set collapses the two identical credits into one, so the
+  // second echo escapes. The counting ledger keeps one credit per append.
+  const archive = new FakeArchive([], { misnumber: true, deferNotify: true });
+  const transport = new FakeTransport();
+  const cursorStore = new MemoryCursorAdapter();
+  const bridge = startBridge({ archive, transport, cursorStore });
+
+  t.after(async () => {
+    bridge.controller.abort();
+    await bridge.promise;
+  });
+
+  transport.queueRemote({ agent: 'treesan', text: 'joined', time: '2026-05-03T12:30:00Z' });
+  transport.queueRemote({ agent: 'treesan', text: 'joined', time: '2026-05-03T12:30:00Z' });
+
+  // Wait until syncOnce has appended both copies (and registered both content
+  // credits) before releasing the watch loop.
+  await waitFor(
+    () => archive.lines.filter((line) => line === '[12:30 treesan] joined').length === 2,
+    { message: 'both identical remote lines were not appended' }
+  );
+  archive.flushNotify();
+
+  // Window for a storm to amplify if the second echo escapes the guard.
+  await sleep(400);
+
+  assert.equal(
+    archive.lines.filter((line) => line === '[12:30 treesan] joined').length,
+    2,
+    'echo storm: identical line was re-appended'
+  );
+  assert.equal(
+    transport.messages.filter((m) => m.sender === transport.sender).length,
+    0,
+    'bridge re-posted a remote line back to smalltoak'
   );
 });
 
