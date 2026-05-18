@@ -87,6 +87,34 @@ let pump = Promise.resolve();
 
 let lastAuthor = null;
 
+// Print the last N protocol lines as history before entering tail mode.
+{
+  const HISTORY_LINES = 30;
+  try {
+    const raw = readFileSync(filePath, 'utf8');
+    const all = raw.split('\n').filter(l => FLAT_RE.test(l));
+    const recent = all.slice(-HISTORY_LINES);
+    if (recent.length) {
+      process.stdout.write(`${DIM}── history (last ${recent.length}) ──────────────────${RESET}\n`);
+      for (const line of recent) {
+        const m = line.match(FLAT_RE);
+        if (!m) continue;
+        const [, time, author, msg] = m;
+        const c = colorFor(author);
+        const cols = process.stdout.columns || 80;
+        const prefixLen = time.length + 1 + author.length + 2;
+        const maxMsg = Math.max(20, cols - prefixLen);
+        const wrapped = wordWrap(highlightLinks(msg), maxMsg, ' '.repeat(prefixLen));
+        if (lastAuthor !== null && lastAuthor !== author) process.stdout.write('\n');
+        lastAuthor = author;
+        process.stdout.write(`${DIM}${time}${RESET} ${c}${author}${RESET}  ${wrapped}\n`);
+      }
+      process.stdout.write(`${DIM}── live ─────────────────────────────────────────${RESET}\n\n`);
+      lastAuthor = null;
+    }
+  } catch { /* ignore — tail still works */ }
+}
+
 // Highlight [[wikilinks]] in cyan in any message text.
 function highlightLinks(text) {
   return text.replace(/\[\[([^\]]+?)\]\]/g, `${CYAN}[[$1]]${RESET}`);
@@ -352,9 +380,22 @@ rl.on('line', async (raw) => {
   // ── /open <target> ─────────────────────────────────────────────────
   if (text.startsWith('/open ')) {
     const target = text.slice(6).trim();
-    const resolved = resolveLink(target, { from: filePath });
+    let resolved = resolveLink(target, { from: filePath });
+    // Fallback: try sub:<target> if plain lookup misses (common case: /open device-link)
+    if ((!resolved.path || resolved.type === 'missing') && !target.includes(':')) {
+      resolved = resolveLink(`sub:${target}`, { from: filePath, workspaceRoots: [] });
+    }
     if (!resolved.path || resolved.type === 'missing') {
       process.stdout.write(`${DIM}not found: ${target}${RESET}\n`);
+      rl.prompt(); return;
+    }
+    // Sub-collabs: show join command instead of opening in a pager
+    if (resolved.type === 'sub') {
+      printBox([
+        `${BOLD}sub-chat${RESET}: ${DIM}${resolved.path}${RESET}`,
+        `${DIM}open in a new terminal pane:${RESET}`,
+        `  treebird-chat ${resolved.path} --as ${agent}`,
+      ]);
       rl.prompt(); return;
     }
     const pager = process.env.PAGER || 'less';
