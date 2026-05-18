@@ -16,6 +16,7 @@
 - **`treebird-chat-join` spun against a dead bridge** — bridge exit only logged; the corrwait loop kept re-arming forever. Bridge exit now triggers `cleanup()`.
 - **TUI word wrap** (`bin/treebird-chat.mjs`) — `wordWrap` now breaks on em-dash (heavily used in agent messages) as well as spaces, and hard-cuts cleanly when no break point exists in the width window.
 - **Watcher cursor skipped continuation lines** (`lib/watcher.mjs`) — the cursor mis-handled multi-line flat messages.
+- **Smalltoak bridge echo storm** (`lib/bridge.mjs`, `lib/markdown-archive.mjs`) — the bridge's self-echo guard used a `Set` for appended-line content, which collapses duplicate content: once one identical self-line was consumed, a second went unrecognized whenever the line-number guard also missed, and the bridge re-posted its own echo in a loop. Replaced with a counting multiset (`createSelfContentLedger()`) — one credit per self-append, retired on match. `markdown-archive#appendLine` now scans from the end of the file so a stale earlier duplicate is never mistaken for the just-appended line.
 
 ### Changed
 
@@ -32,7 +33,6 @@
 ### Fixed
 
 - **Wizard always prompted for smalltoak URL/token** — even with `SMALLTOAK_SERVER_URL` set in env, the wizard asked for it again. Now uses env values silently.
-- **Smalltoak bridge echo storm** (`lib/bridge.mjs`, `lib/markdown-archive.mjs`) — the bridge's self-echo guard could fail to recognize a line it had just appended, treating its own echo as a fresh local message and re-posting it in a loop (observed: one chat line re-appended 100+ times). Root cause: `selfInsertedContent` was a `Set`, which collapses duplicate line content — once one identical self-line was consumed, a second went unrecognized whenever the line-number guard also missed. Exact line-number attribution is impossible when non-locking writers (a raw `printf >>`) share the file, so the content guard is now a counting multiset (one credit per self-append, retired on match). `markdown-archive#appendLine` additionally scans for its appended line from the end of the file, so a duplicate earlier copy is never mistaken for the new line.
 
 ### Security
 
