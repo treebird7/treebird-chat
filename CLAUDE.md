@@ -18,15 +18,21 @@ treebird-chat is a small CLI toolkit (`~250 lines`) for human + multi-agent chat
 
 ```
 bin/
-  corrwait.mjs        — agent loop primitive (blocking poll)
-  treebird-chat.mjs        — human TUI (readline + chokidar)
+  corrwait.mjs             — agent loop primitive (blocking poll)
+  treebird-chat.mjs        — human TUI (readline + chokidar); shows 30-line history on join
   treebird-chat-tail.mjs   — read-only colorized tail
   treebird-chat-allow.mjs  — owner: enable agent on a chat
   treebird-chat-deny.mjs   — owner: disable agent on a chat
+  treebird-chat-join.mjs   — one-command remote session join (smalltoak)
+  treebird-chat-session.mjs — non-interactive session creator
+  treebird-chat-wizard.mjs  — interactive 7-step session setup wizard
 lib/
   identity.mjs        — verify ENVOAK_AGENT_LABEL → strip machine suffix
   access.mjs          — read/write/check `<file>.access.json`
   watcher.mjs         — file snapshot, diff-since-baseline, cursor logic, format regexes
+  wikilink.mjs        — [[target]] resolver: path, type (chat/doc/sub/task/mem), active status
+  subs.mjs            — sub-collab lifecycle: read/write .subs.json, close-and-summarize
+  writer.mjs          — atomic O_APPEND with lock; appendLines() / appendLine()
 ```
 
 ## Non-obvious things
@@ -47,6 +53,20 @@ The WAKE payload includes:
 ```
 
 `newContent` is a string with the complete new section (headers + bodies). **Use it directly.** Reading the file again is wasted tokens — it just gives you all the history you've already seen.
+
+### Multi-line messages need a prefix on every line
+
+The TUI renders only lines matching `[HH:MM agent] msg`. If you write a multi-line block directly to the file with `cat >>` or a heredoc, only the first line gets the prefix — all continuation lines are silently invisible to every participant's TUI.
+
+**Right — one prefix per line:**
+```bash
+T=$(date +%H:%M)
+printf '[%s yosef] point one\n' "$T" >> "$CHAT"
+printf '[%s yosef] point two\n' "$T" >> "$CHAT"
+printf '[%s yosef] point three\n' "$T" >> "$CHAT"
+```
+
+Or use `appendLines` from `lib/writer.mjs` — it prefixes every array element automatically.
 
 ### Append, never Edit (chat files)
 
@@ -130,9 +150,33 @@ If you're an agent in a Claude Code session, joining a chat:
 
 5. **Don't run treebird-chat (TUI) in your bash shell** — it requires a real interactive terminal (TTY). Claude Code's bash is non-interactive. Use `corrwait` only.
 
+## Sub-collabs
+
+From inside any TUI session, `/sub <topic>` creates a focused side-conversation:
+
+```
+/sub device-link          # creates sibling file, inherits ACL, posts [[wikilink]] in parent
+/subs                     # list all subs for this session
+/open device-link         # resolve sub by topic name, print the join command
+/close [summary text]     # close the sub, post summary back to parent
+```
+
+Sub files are full chat files — they have their own ACL and corrwait loop. Agents join a sub by running `corrwait` on the sub file directly, same as any other chat file. `lib/subs.mjs` manages the `.subs.json` registry; `lib/wikilink.mjs` resolves `[[sub:topic]]` links.
+
+## Wikilinks
+
+`lib/wikilink.mjs` resolves `[[target]]` syntax to file paths:
+
+- `[[filename]]` — any `.md` in sibling dir or workspace roots (`TREEBIRD_WORKSPACE` env, or `~/treebird-shared`, `~/Dev/treebird`, `~/Dev/treebird-internal`)
+- `[[sub:topic]]` — sub-collab sibling matching `_sub_<topic>` pattern
+- `[[task:P2.1]]` — task ID anchor in `STATE.json` (walks up from `from` file)
+- `[[mem:slug]]` — memory file in `~/.claude/.../memory/<slug>.md`
+
+`resolveLink(target, { from: filePath })` returns `{ path, type, active, anchor }`.
+
 ## Known limitations / TODO
 
 - No multi-machine bridge for the artisan-hub viewer (it watches `~/Dev/treebird-internal/collab/`, not `~/treebird-shared/collab/treebird-chat/` — symlinks break chokidar's change events on the viewer side)
 - Concurrent-write collisions on long messages (>4096 bytes can interleave) — practically rare but real
 - No mentions / addressing — every message wakes every listening agent (planned: SPEC_notifications.md in the private birdchat repo)
-- No threading
+- Sub-collabs are flat siblings (one level deep) — no recursive nesting

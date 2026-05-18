@@ -4,6 +4,22 @@
 
 ### Added
 
+- **History on join** (`bin/treebird-chat.mjs`) — TUI now prints the last 30 protocol lines as a history block on startup (with a `── history ──` / `── live ──` separator) before entering tail mode. Previously the cursor was set to end-of-file, so late joiners saw no context.
+- **`/open <topic>` sub-collab shortcut** (`bin/treebird-chat.mjs`) — `/open device-link` now falls back to `sub:device-link` when the plain lookup finds nothing, so you can reference subs by topic name without the prefix. When the resolved type is `sub`, the command prints the `treebird-chat <path> --as <agent>` join command instead of opening the file in a pager.
+- **Wikilink resolver** (`lib/wikilink.mjs`) — parses `[[target]]` syntax and resolves to file path, type (`chat` | `doc` | `sub` | `task` | `mem`), and active status. Supports `sub:`, `task:`, `mem:` prefixes; plain `[[filename]]` searches sibling dir then workspace roots. Active detection via `.bridge-cursor.json` sidecar or parent `.subs.json` entry.
+- **TUI wikilink highlighting** — `[[wikilinks]]` rendered in cyan in all received messages.
+- **`/sub <topic>` command** (`bin/treebird-chat.mjs`) — creates a sub-collab file (sibling to the current file, `_sub_<topic>_<HH:MM>` suffix), inherits parent ACL, registers in `.subs.json`, posts a `[[wikilink]]` pointer into the parent. If the sub already exists, prints the join command instead.
+- **`/subs` command** — lists all sub-collabs for the current session with active/closed status.
+- **`/preview <target>` command** — inlines the first 20 lines of any linked file.
+- **Sub lifecycle** (`lib/subs.mjs`, `bin/treebird-chat.mjs`, `bin/treebird-chat-join.mjs`) — `/close [summary]` in a sub TUI posts a summary back to the parent chat and marks the sub closed in `.subs.json`. Auto-summary reads the last 3 protocol lines if no text is provided. `--parent <file>` flag on both binaries wires the close path.
+
+### Fixed
+
+- **`/open` on sub-collabs opened in pager** — sub files are meant to be joined in a new TUI session, not read in `less`. `/open` now detects `type === 'sub'` and prints the `treebird-chat` join command.
+- **Malformed protocol lines invisible in TUI** — lines missing a `[HH:MM agent]` prefix are silently dropped by `printLine`. Added timestamp fixup for lines written as `[ agent]` (space-only where time should be).
+
+### Added
+
 - **`treebird-chat-join`** (`bin/treebird-chat-join.mjs`) — single-command remote session join. Collapses the old 6-step paste block (touch, env, bridge, allow, corrwait, reply) into `treebird-chat-join <chatId> [--as agent] [--tui]`. Reads `SMALLTOAK_TOKEN` from `~/.treebird-chat/.env` (never argv or shell history), resolves the smalltoak URL, spawns the bridge as a managed child, then runs a corrwait loop (agents) or opens the TUI (`--tui`, humans). Solves R-invite-2 — agents were misreading the multi-step paste block as in-session instructions.
 - **Single-instance bridge lock** (`treebird-chat-join`) — a stale-PID-aware lockfile per `(chatId, mirror)` refuses to start a second bridge on the same file. Prevents the two-bridges-one-file echo storm where each bridge re-pushes the other's writes.
 - **`resolvePublicUrl()` / `localIPv4s()`** (`lib/config.mjs`) — detect a loopback host in a cross-machine invite and rewrite it to the host's reachable IP (Thunderbolt `192.168.100.x` preferred, link-local `169.254.x.x` excluded), listing other routes as alternates.

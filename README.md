@@ -127,6 +127,42 @@ Good. Working on the auth flow.
 
 `corrwait` and `treebird-chat-tail` understand both. `treebird-chat` (TUI) writes flat only.
 
+## Sub-collabs
+
+Any participant can spin off a focused sub-conversation from inside a session:
+
+```
+/sub device-link
+```
+
+This creates a sibling file (`CONSORTIUM_..._sub_device-link_HHmm.md`), inherits the parent ACL, registers in `.subs.json`, and posts a `[[wikilink]]` pointer into the parent chat. The TUI prints the exact command to open it:
+
+```
+treebird-chat /path/to/CONSORTIUM_..._sub_device-link_2220.md --as human
+```
+
+To list all subs for the current session: `/subs`
+
+To join an existing sub from inside the parent TUI: `/open device-link` (resolves the topic to the sibling file and prints the join command).
+
+To close a sub and post a summary back to the parent: `/close [optional summary text]`
+
+Sub files are real chat files — they have their own ACL, their own corrwait loop, and their own history. They're just discovered and referenced via `[[wikilinks]]` in the parent.
+
+## Wikilinks
+
+`[[target]]` syntax resolves to files, tasks, and memories:
+
+| Syntax | Resolves to |
+|---|---|
+| `[[filename]]` | Any `.md` in the sibling dir or workspace roots |
+| `[[sub:topic]]` | Sub-collab sibling matching `_sub_topic` pattern |
+| `[[task:P2.1]]` | Entry in `STATE.json` (walks up to find it) |
+| `[[mem:slug]]` | Memory file in `~/.claude/.../memory/<slug>.md` |
+| `[[filename#section]]` | File + anchor |
+
+`[[wikilinks]]` are highlighted cyan in the TUI. `/preview <target>` inlines the first 20 lines of the resolved file without leaving the session.
+
 ## Concepts
 
 ### The implicit cursor
@@ -206,7 +242,7 @@ Any OpenAI-compatible local server works (`ollama`, `llama.cpp`, `mlx_lm`, etc.)
 | `treebird-chat-wizard` | Interactive 7-step session setup wizard. | Humans |
 | `treebird-chat-session [--name] [--invite] [--join]` | Non-interactive session creator. Starts gemma-bridge if gemma invited. | Humans / scripts |
 | `corrwait <file> [--as <agent>] [--end-word "/end"] [--timeout 540]` | Blocking poll. Exits on WAKE / END / TIMEOUT / REVOKED. | Agents |
-| `treebird-chat <file> [--as <agent>]` | Interactive chat TUI. Send + live receive. Max 3 lines/send. | Humans |
+| `treebird-chat <file> [--as <agent>]` | Interactive chat TUI. Send + live receive. Shows last 30 lines of history on join. | Humans |
 | `treebird-chat-tail <file> [--from-start]` | Read-only colorized tail. | Anyone |
 | `treebird-chat-allow <file> <agent> [--owner <name>]` | Toggle agent ON. Creates sidecar if missing. | Owner |
 | `treebird-chat-deny <file> <agent>` | Toggle agent OFF. Their next corrwait wake exits REVOKED. | Owner |
@@ -284,7 +320,7 @@ treebird-chat is a *very small* tool. It deliberately doesn't do:
 
 - **CRDT / OT** — concurrent edits to the same line will conflict. The flat format minimizes this (one writer per atomic append) but doesn't eliminate it. If you need multiplayer-cursor real-time editing, use [HedgeDoc](https://github.com/hedgedoc/hedgedoc) or similar.
 - **Push notifications / webhooks** — agents poll (cheaply, via blocking I/O on chokidar). No external delivery channel.
-- **Threading** — chats are flat. Use new files for sub-conversations.
+- **Threading** — chats are flat. Use `/sub <topic>` for sub-conversations (supported, but no nested threads within a file).
 - **Search / archive** — `grep` or your editor on the file.
 
 These are all features you can add on top. The core stays small on purpose.
