@@ -19,6 +19,7 @@ import { isAllowed, readAcl, aclPath, setAllowed } from '../lib/access.mjs';
 import { FLAT_RE } from '../lib/watcher.mjs';
 import { findSessionByPath, resolvePublicUrl } from '../lib/config.mjs';
 import { resolveLink, parseLinks } from '../lib/wikilink.mjs';
+import { readSubs, addSub, closeSubInParent } from '../lib/subs.mjs';
 
 const MAX_LINES = 3;
 const COLORS = ['\x1b[36m', '\x1b[35m', '\x1b[33m', '\x1b[32m', '\x1b[34m', '\x1b[91m', '\x1b[95m'];
@@ -39,15 +40,18 @@ function nowHHMM() {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-// args: <file> [--as <agent>]
+// args: <file> [--as <agent>] [--parent <parent-chat-file>]
 let file = null;
 let asArg = null;
+let parentFile = null;
 {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--as') asArg = argv[++i];
+    else if (argv[i] === '--parent') parentFile = argv[++i];
     else if (!argv[i].startsWith('--') && !file) file = argv[i];
   }
+  if (parentFile) parentFile = resolve(parentFile);
 }
 if (!file) {
   process.stderr.write('usage: treebird-chat <file> [--as <agent>]\n');
@@ -161,24 +165,7 @@ const watcher = chokidar.watch(filePath, {
 });
 watcher.on('add', onChange).on('change', onChange);
 
-// ── .subs.json sidecar helpers ─────────────────────────────────────────
-function subsPath(chatFile) { return `${chatFile}.subs.json`; }
-
-function readSubs(chatFile) {
-  const p = subsPath(chatFile);
-  if (!existsSync(p)) return [];
-  try { return JSON.parse(readFileSync(p, 'utf8')).subs ?? []; }
-  catch { return []; }
-}
-
-function writeSubs(chatFile, subs) {
-  writeFileSync(subsPath(chatFile), JSON.stringify({ subs }, null, 2) + '\n');
-}
-
-function addSub(chatFile, entry) {
-  const subs = readSubs(chatFile).filter(s => s.file !== entry.file);
-  writeSubs(chatFile, [...subs, entry]);
-}
+// (subs management imported from ../lib/subs.mjs)
 
 // ── TUI output helpers ─────────────────────────────────────────────────
 function printBox(lines) {
@@ -206,6 +193,20 @@ rl.on('line', async (raw) => {
   const text = raw.trim();
   if (!text) { rl.prompt(); return; }
   if (text === '/end') { shutdown('left chat'); return; }
+
+  // ── /close [summary] ───────────────────────────────────────────────
+  if (text.startsWith('/close') && (text === '/close' || text[6] === ' ')) {
+    const summary = text.slice(6).trim() || null;
+    if (parentFile) {
+      await closeSubInParent(parentFile, filePath, summary, agent);
+      process.stdout.write(`${DIM}summary posted to parent — closing${RESET}\n`);
+    } else {
+      process.stdout.write(`${DIM}no --parent set; use /end to leave, or reopen with --parent <file>${RESET}\n`);
+      rl.prompt(); return;
+    }
+    shutdown('sub closed');
+    return;
+  }
 
   if (text.startsWith('/invite ')) {
     const invitee = text.slice(8).trim();

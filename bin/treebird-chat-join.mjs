@@ -14,17 +14,19 @@ import { fileURLToPath } from 'node:url';
 import { loadEnv, resolvePublicUrl, spawnEnv } from '../lib/config.mjs';
 import { verifyAgentIdentity } from '../lib/identity.mjs';
 import { setAllowed } from '../lib/access.mjs';
+import { closeSubInParent } from '../lib/subs.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 
 loadEnv();
 
-let chatId = null, asArg = null, smalltoakUrl = null, tui = false;
+let chatId = null, asArg = null, smalltoakUrl = null, tui = false, parentFile = null;
 {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--as') asArg = argv[++i];
     else if (argv[i] === '--smalltoak-url') smalltoakUrl = argv[++i];
+    else if (argv[i] === '--parent') parentFile = argv[++i];
     else if (argv[i] === '--tui') tui = true;
     else if (!argv[i].startsWith('--') && !chatId) chatId = argv[i];
   }
@@ -116,8 +118,12 @@ if (livePid) {
   });
 }
 
-const cleanup = (msg) => {
+const cleanup = async (msg) => {
   if (msg) process.stderr.write(`[join] ${msg}\n`);
+  if (parentFile) {
+    try { await closeSubInParent(parentFile, mirrorFile, null, agent); }
+    catch (e) { process.stderr.write(`[join] parent close failed: ${e.message}\n`); }
+  }
   if (bridge) {
     try { rmSync(lockFile); } catch {}
     try { bridge.kill(); } catch {}
@@ -139,9 +145,9 @@ if (bridge) await new Promise(r => setTimeout(r, 900));
 
 if (tui) {
   process.stderr.write('[join] opening TUI ...\n');
-  const chat = spawn(
-    process.execPath,
-    [join(__dir, 'treebird-chat.mjs'), mirrorFile, '--as', agent],
+  const chatArgs = [join(__dir, 'treebird-chat.mjs'), mirrorFile, '--as', agent];
+  if (parentFile) chatArgs.push('--parent', parentFile);
+  const chat = spawn(process.execPath, chatArgs,
     { env: spawnEnv({ BIRDCHAT_AGENT: agent }), stdio: 'inherit' }
   );
   chat.on('exit', () => cleanup('TUI closed'));
