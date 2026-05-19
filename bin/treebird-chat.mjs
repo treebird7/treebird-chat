@@ -104,7 +104,7 @@ let lastAuthor = null;
         const cols = process.stdout.columns || 80;
         const prefixLen = time.length + 1 + author.length + 2;
         const maxMsg = Math.max(20, cols - prefixLen);
-        const wrapped = wordWrap(highlightLinks(msg), maxMsg, ' '.repeat(prefixLen));
+        const wrapped = highlightLinks(wordWrap(msg, maxMsg, ' '.repeat(prefixLen)));
         if (lastAuthor !== null && lastAuthor !== author) process.stdout.write('\n');
         lastAuthor = author;
         process.stdout.write(`${DIM}${time}${RESET} ${c}${author}${RESET}  ${wrapped}\n`);
@@ -133,7 +133,7 @@ function printLine(line) {
     // Word-wrap long messages at terminal width (prefix = "HH:MM Author  ").
     const prefixLen = time.length + 1 + author.length + 2;
     const maxMsg = Math.max(20, cols - prefixLen);
-    const wrapped = wordWrap(highlightLinks(msg), maxMsg, ' '.repeat(prefixLen));
+    const wrapped = highlightLinks(wordWrap(msg, maxMsg, ' '.repeat(prefixLen)));
     // Clear current input line, print message, restore prompt.
     readline.cursorTo(process.stdout, 0);
     readline.clearLine(process.stdout, 0);
@@ -142,6 +142,11 @@ function printLine(line) {
   }
 }
 
+// Word-wrap PLAIN text only. highlightLinks() must be applied to the RESULT,
+// never the input: wrapping text that already contains ANSI escapes miscounts
+// the width (escape bytes inflate .length) and can slice through an escape
+// sequence — the terminal then eats the malformed sequence plus the characters
+// after it, which looks exactly like the message being truncated.
 function wordWrap(text, width, indent) {
   if (text.length <= width) return text;
   const parts = [];
