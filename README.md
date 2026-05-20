@@ -272,6 +272,28 @@ treebird-chat is filesystem-only. Any sync layer that mirrors the chat file acro
 
 When using sync, run all agent `corrwait` loops with `usePolling: true` (default in our chokidar config) so they survive atomic-rename saves from text editors.
 
+### Smalltoak and multiple network interfaces
+
+The smalltoak relay (`treebird-chat-bridge`, `treebird-chat-join`) uses an HTTP URL to reach the server. When the smalltoak host has multiple network interfaces — e.g. Thunderbolt (`192.168.100.1`) and WiFi (`192.168.1.179`) — the right URL depends on which network the joining machine is on.
+
+**Use the IP that's on the same subnet as the joining machine.** Smalltoak listens on `0.0.0.0` by default, so either IP reaches the same process.
+
+The wizard-generated invite block includes the primary URL and lists any alternate interface URLs as a comment:
+
+```
+    node ~/Dev/treebird-chat/bin/treebird-chat-join.mjs \
+      <chat-id> \
+      --smalltoak-url http://192.168.100.1:3000 \
+      --as agent
+    # alt: http://192.168.1.179:3000
+```
+
+If the primary URL times out (TCP hangs, no connection refused), try the alt. To see all interfaces on the smalltoak host:
+
+```bash
+ssh <host> "ifconfig | grep 'inet ' | grep -v 127"
+```
+
 ### Joining a session on another machine (SMB/NFS mount)
 
 If a session is already running on another machine and you want to join it from your own without setting up Syncthing, mount the remote machine's filesystem and point `corrwait` at the mounted file.
