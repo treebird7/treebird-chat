@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// corrwait <CORR_file> [--end-word "/end"] [--timeout 540]
+// corrwait <CORR_file> [--end-word "/end"] [--timeout 540] [--catchup]
 //
 // Blocks until one of:
 //   - new round from any agent       → exit 0, print wake content
@@ -8,6 +8,10 @@
 //   - <CORR_file>.end sidecar exists → exit 1 (END)
 //   - this agent revoked in ACL      → exit 3 (REVOKED)
 //   - self-timeout reached           → exit 2 (re-invoke)
+//
+// --catchup: non-blocking one-shot read. Emits CATCHUP with all new content
+//   since the cursor, advances the cursor, and exits immediately (exit 0).
+//   Useful for reading session context after waking on an external signal.
 //
 // Identity: requires ENVOAK_AGENT_LABEL in env (run dawn first).
 // Access:   requires the agent to be allowed in <CORR_file>.access.json.
@@ -41,6 +45,7 @@ function parseArgs(argv) {
     onMention: false,
     write: null,
     writeMode: false,
+    catchup: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -49,6 +54,7 @@ function parseArgs(argv) {
     else if (a === '--as') args.as = argv[++i];
     else if (a === '--session') args.session = argv[++i];
     else if (a === '--on-mention') args.onMention = true;
+    else if (a === '--catchup') args.catchup = true;
     else if (a === '--write') {
       args.writeMode = true;
       args.write = argv[++i];
@@ -63,7 +69,7 @@ function emit(reason, payload = {}) {
 }
 
 async function main() {
-  const { file: rawFile, session, endWord, timeoutSec, as, onMention, write, writeMode: isWriteMode } =
+  const { file: rawFile, session, endWord, timeoutSec, as, onMention, write, writeMode: isWriteMode, catchup: isCatchup } =
     parseArgs(process.argv.slice(2));
 
   // --session <chat-id>: look up file path from session registry
@@ -85,6 +91,10 @@ async function main() {
   }
   if (isWriteMode && write == null) {
     process.stderr.write('usage: corrwait <CORR_file> --write <message> [--as <agent>]\n');
+    process.exit(EXIT.ERROR);
+  }
+  if (isCatchup && isWriteMode) {
+    process.stderr.write('--catchup and --write are mutually exclusive\n');
     process.exit(EXIT.ERROR);
   }
 
@@ -133,6 +143,30 @@ async function main() {
   const baseline = persisted > implicit.lines.length
     ? { length: 0, lines: snapshot(filePath).lines.slice(0, persisted) }
     : implicit;
+
+  // --catchup: non-blocking one-shot read. Advance cursor, emit CATCHUP, exit.
+  if (isCatchup) {
+    const mentionTarget = onMention ? agent : null;
+    const diff = diffSinceBaseline(filePath, baseline, endWord, agent, mentionTarget);
+    try {
+      const lines = snapshot(filePath).lines;
+      const realLines = lines.length > 0 && lines[lines.length - 1] === ''
+        ? lines.length - 1
+        : lines.length;
+      writeCursor(filePath, agent, realLines);
+    } catch (e) { process.stderr.write(`[corrwait] writeCursor failed: ${e.message}\n`); }
+    emit('CATCHUP', {
+      agent,
+      wakeLines: diff.wakeLines,
+      newContent: diff.newLines.join('\n'),
+      newRound: diff.hasNewRound,
+      newHuman: diff.hasNewHuman,
+      newFreeform: diff.hasNewFreeform,
+      priority: diff.priority,
+      woke: diff.woke,
+    });
+    process.exit(EXIT.WAKE);
+  }
 
   let watcher = null;
   let resolved = false;

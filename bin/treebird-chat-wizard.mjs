@@ -17,6 +17,7 @@ import { spawnSync, spawn } from 'node:child_process';
 import os from 'node:os';
 import readline from 'node:readline';
 import { loadEnv, saveSession, loadSession, spawnEnv } from '../lib/config.mjs';
+import { loadPin, fingerprintFromPem } from '../lib/smalltoak-pin.mjs';
 
 // Load .env / ~/.treebird-chat/.env before anything reads process.env
 loadEnv();
@@ -272,6 +273,7 @@ async function main() {
 
   let smalltoakUrl = null;
   let smalltoakToken = null;
+  let smalltoakCertFile = null;
   let chatId = null;
   if (transport.includes('smalltoak')) {
     // Use env values silently if available; only prompt for missing ones.
@@ -287,6 +289,43 @@ async function main() {
     } else {
       info('Smalltoak token: (from env)');
     }
+
+    // Cert pinning — required when URL is https://. Source priority:
+    //   1. SMALLTOAK_CERT_FILE / SMALLTOAK_CERT env (host machine usually has this)
+    //   2. ~/.treebird-chat/smalltoak.crt (persisted from a previous join)
+    //   3. Prompt
+    // Validate via loadPin so a bad cert fails here, not at bridge launch.
+    if (smalltoakUrl.startsWith('https://')) {
+      const DEFAULT_CERT = resolve(os.homedir(), '.treebird-chat', 'smalltoak.crt');
+      let candidate = process.env.SMALLTOAK_CERT_FILE || process.env.SMALLTOAK_CERT || null;
+      if (!candidate && existsSync(DEFAULT_CERT)) candidate = DEFAULT_CERT;
+      if (candidate) {
+        info(`Smalltoak cert: ${candidate}`);
+      } else {
+        candidate = (await askDefault('Smalltoak cert file (path to PEM)', '')) || null;
+      }
+
+      if (!candidate) {
+        warn('https:// requires a pinned cert — bridge will refuse to start without one.');
+      } else {
+        try {
+          const pem = loadPin(candidate);
+          info(`Cert SHA-256: ${fingerprintFromPem(pem)}`);
+          // Mirror to ~/.treebird-chat/smalltoak.crt (0600) so future re-joins
+          // — and the bridge spawn below — find it without further prompting.
+          const absSource = resolve(candidate);
+          if (absSource !== DEFAULT_CERT) {
+            mkdirSync(dirname(DEFAULT_CERT), { recursive: true, mode: 0o700 });
+            writeFileSync(DEFAULT_CERT, pem, { mode: 0o600 });
+            info(`Cert persisted to ${DEFAULT_CERT}`);
+          }
+          smalltoakCertFile = DEFAULT_CERT;
+        } catch (e) {
+          warn(`Cert load failed: ${e.message}`);
+        }
+      }
+    }
+
     chatId = await askDefault('Chat ID', name.replace(/\s+/g, '-').toLowerCase());
   }
 
@@ -428,8 +467,10 @@ async function main() {
     ok(`gemma-bridge started (PID ${child.pid})`);
   }
 
-  // Save session config for --join
-  saveSession(chatId || humanName, { filePath, smalltoakUrl, smalltoakToken, humanName });
+  // Save session config for --join (includes cert path so re-joins repin).
+  saveSession(chatId || humanName, {
+    filePath, smalltoakUrl, smalltoakToken, smalltoakCertFile, humanName,
+  });
 
   // Start smalltoak bridge if requested
   if (smalltoakUrl && smalltoakToken && chatId) {
@@ -437,10 +478,12 @@ async function main() {
       SMALLTOAK_TOKEN: smalltoakToken,
       TREEBIRD_MACHINE: process.env.TREEBIRD_MACHINE,
       BIRDCHAT_BRIDGE_POLL_MS: process.env.BIRDCHAT_BRIDGE_POLL_MS,
+      ...(smalltoakCertFile ? { SMALLTOAK_CERT_FILE: smalltoakCertFile } : {}),
     });
+    const bridgeArgs = [BRIDGE_BIN, chatId, filePath, '--smalltoak-url', smalltoakUrl];
+    if (smalltoakCertFile) bridgeArgs.push('--cert-file', smalltoakCertFile);
     const child = spawn(
-      process.execPath,
-      [BRIDGE_BIN, chatId, filePath, '--smalltoak-url', smalltoakUrl],
+      process.execPath, bridgeArgs,
       { stdio: ['ignore', 'ignore', 'inherit'], detached: true, env }
     );
     child.on('error', (err) => warn(`smalltoak bridge failed to start: ${err.message}`));
@@ -456,10 +499,17 @@ async function main() {
   const agentsToInvite = invites.filter(a => !KNOWN_AGENTS.find(k => k.name === a && k.local));
   if (agentsToInvite.length > 0) {
     section('Agent invites — copy-paste each to the agent\'s session:');
+    // Surface the cert path to the invite subprocess so it knows to embed
+    // the PEM + fingerprint in TLS-aware invite blocks. If we already had it
+    // in env (host case), inheritance covers it; the explicit pass-through
+    // covers the prompt-only case where env was empty.
+    const inviteEnv = smalltoakCertFile
+      ? { ...process.env, SMALLTOAK_CERT_FILE: smalltoakCertFile }
+      : process.env;
     for (const agent of agentsToInvite) {
       const inviteArgs = [INVITE_BIN, filePath, agent];
       if (smalltoakUrl && chatId) inviteArgs.push('--smalltoak-url', smalltoakUrl, '--chat-id', chatId);
-      const result = spawnSync(process.execPath, inviteArgs, { stdio: 'pipe' });
+      const result = spawnSync(process.execPath, inviteArgs, { stdio: 'pipe', env: inviteEnv });
       process.stdout.write(result.stdout.toString());
     }
   }
@@ -490,23 +540,27 @@ async function joinSession(chatId) {
     process.exit(1);
   }
 
-  const { filePath, smalltoakUrl, humanName } = session;
+  const { filePath, smalltoakUrl, smalltoakCertFile, humanName } = session;
 
   if (!existsSync(filePath)) {
     mkdirSync(resolve(filePath, '..'), { recursive: true });
     writeFileSync(filePath, '');
   }
 
-  // Start smalltoak bridge if session uses it
+  // Start smalltoak bridge if session uses it. Re-thread the pinned cert
+  // recorded at session-create time — required for https:// URLs (the
+  // bridge fail-closes without it). For http:// the value is unused.
   if (smalltoakUrl) {
     const env = spawnEnv({
       SMALLTOAK_TOKEN: process.env.SMALLTOAK_TOKEN || '',
       TREEBIRD_MACHINE: process.env.TREEBIRD_MACHINE,
       BIRDCHAT_BRIDGE_POLL_MS: process.env.BIRDCHAT_BRIDGE_POLL_MS,
+      ...(smalltoakCertFile ? { SMALLTOAK_CERT_FILE: smalltoakCertFile } : {}),
     });
+    const bridgeArgs = [BRIDGE_BIN, chatId, filePath, '--smalltoak-url', smalltoakUrl];
+    if (smalltoakCertFile) bridgeArgs.push('--cert-file', smalltoakCertFile);
     const child = spawn(
-      process.execPath,
-      [BRIDGE_BIN, chatId, filePath, '--smalltoak-url', smalltoakUrl],
+      process.execPath, bridgeArgs,
       { stdio: ['ignore', 'ignore', 'inherit'], detached: true, env }
     );
     child.on('error', (err) => process.stderr.write(`bridge failed to start: ${err.message}\n`));

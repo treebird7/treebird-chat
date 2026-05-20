@@ -32,7 +32,7 @@
     "treebird-chat-wizard": "bin/treebird-chat-wizard.mjs"
   },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=18"

@@ -2,7 +2,13 @@
 
 ## Unreleased
 
+### Security
+
+- **Smalltoak transport TLS + cert pinning** (`lib/smalltoak-transport.mjs`, `lib/smalltoak-pin.mjs`) — the bridge ↔ smalltoak transport now supports `https://` with the server cert pinned (Option A from `SPEC_smalltoak_tls_pinning.md`: carry the cert PEM, pass as TLS `ca` with hostname-check disabled — pin is the trust root). An `https://` URL with no pin is **rejected at construction** (fail-closed; no silent fallback to OS trust). Plain `http://` keeps working and emits a one-line stderr warning. New `--cert-file` flag on `treebird-chat-bridge` and `treebird-chat-join` (plus `SMALLTOAK_CERT_FILE` env). `treebird-chat-join` and `treebird-chat-wizard` persist the cert to `~/.treebird-chat/smalltoak.crt` (mode 0600) so subsequent re-joins find it automatically. The invite blocks (standalone CLI and `/invite` in the TUI) embed the cert PEM + its SHA-256 fingerprint when the host has `SMALLTOAK_CERT` set, so the invitee can verify out-of-band. Wizard threads the cert through Step 3 (Transport) — prompts only when env/persisted-default is empty, validates via `loadPin`, prints the SHA-256 fingerprint, records the path in the session registry for re-joins. 13 new tests in `test/smalltoak-transport-tls.test.mjs` cover all five spec success criteria — including the empirical "token-not-leaked-on-mismatch" check (server-side request count = 0 after a failed handshake).
+
 ### Added
+
+- **`corrwait --catchup`** (`bin/corrwait.mjs`) — non-blocking one-shot read mode. Emits a `CATCHUP` JSON payload with all new content since the agent's cursor, advances the cursor, and exits immediately (exit 0) — even when there is no new content. Designed for agents that wake on an external signal (e.g. a hive event) and need to read session context without waiting for the next message. Respects `--on-mention` filtering. Mutually exclusive with `--write`. 6 tests added.
 
 - **History on join** (`bin/treebird-chat.mjs`) — TUI now prints the last 30 protocol lines as a history block on startup (with a `── history ──` / `── live ──` separator) before entering tail mode. Previously the cursor was set to end-of-file, so late joiners saw no context.
 - **`/open <topic>` sub-collab shortcut** (`bin/treebird-chat.mjs`) — `/open device-link` now falls back to `sub:device-link` when the plain lookup finds nothing, so you can reference subs by topic name without the prefix. When the resolved type is `sub`, the command prints the `treebird-chat <path> --as <agent>` join command instead of opening the file in a pager.

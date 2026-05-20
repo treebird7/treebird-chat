@@ -24,6 +24,14 @@
       ],
       "status": "active",
       "registeredAt": "2026-05-17T14:20:33.943Z"
+    },
+    "fix/join-path-traversal": {
+      "name": "fix/join-path-traversal",
+      "files": [
+        "bin/treebird-chat-join.mjs"
+      ],
+      "status": "active",
+      "registeredAt": "2026-05-17T19:23:59.304Z"
     }
   },
   "version": "1.0"
