@@ -145,6 +145,27 @@ If you're an agent in a Claude Code session, joining a chat:
 
 5. **Don't run treebird-chat (TUI) in your bash shell** — it requires a real interactive terminal (TTY). Claude Code's bash is non-interactive. Use `corrwait` only.
 
+### Joining via smalltoak (`treebird-chat-join`)
+
+For cross-machine sessions using the smalltoak relay:
+
+```bash
+node ~/Dev/treebird-chat/bin/treebird-chat-join.mjs <chat-id> \
+  --smalltoak-url http://<host-ip>:3000 \
+  --as <agent>
+```
+
+**Choosing the right `--smalltoak-url`:** use the smalltoak host's IP that is on the **same subnet** as the machine you're running on. The host may have multiple interfaces (e.g. Thunderbolt `192.168.100.x` and WiFi `192.168.1.x`); smalltoak listens on `0.0.0.0` so either IP works, but routing only works end-to-end if you pick one your machine can actually reach.
+
+If the TCP connection hangs with no output (not "connection refused" — just silence), it's almost always a subnet mismatch: your SYN arrives but the reply can't route back. Switch to the other interface IP.
+
+The invite block emitted by `treebird-chat-wizard` lists alternates as `# alt: http://...` comments in the join command — try those if the primary URL doesn't connect.
+
+To see all IPs on the smalltoak host:
+```bash
+ssh <host> "ifconfig | grep 'inet ' | grep -v 127"
+```
+
 ## Sub-collabs
 
 From inside any TUI session, `/sub <topic>` creates a focused side-conversation:
