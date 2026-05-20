@@ -11,7 +11,7 @@ import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { dirname, join, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadEnv, resolvePublicUrl, spawnEnv } from '../lib/config.mjs';
+import { loadEnv, resolvePublicUrl, resolveMirrorFile, spawnEnv } from '../lib/config.mjs';
 import { verifyAgentIdentity } from '../lib/identity.mjs';
 import { setAllowed } from '../lib/access.mjs';
 import { closeSubInParent } from '../lib/subs.mjs';
@@ -110,8 +110,18 @@ if (!token) {
   process.exit(1);
 }
 
-const mirrorFile = `/tmp/${chatId}.md`;
-if (!existsSync(mirrorFile)) writeFileSync(mirrorFile, '');
+// Closes issue #6 P2. Previously this was hardcoded to /tmp/<chatId>.md,
+// which silently orphaned every joiner from the canonical canopy file the
+// wizard registered. Now we honour sessions.json; /tmp remains the fallback
+// for remote invites where the joiner has no local registration.
+const { mirrorFile, source: mirrorSource, warning: mirrorWarning } = resolveMirrorFile(chatId);
+if (mirrorWarning) process.stderr.write(`[join] WARN: ${mirrorWarning}\n`);
+if (!existsSync(mirrorFile)) {
+  // Registered file may not exist locally yet (just-created sub, fresh clone).
+  // Touch it so corrwait/chokidar can attach; the bridge populates from smalltoak.
+  mkdirSync(dirname(mirrorFile), { recursive: true });
+  writeFileSync(mirrorFile, '');
+}
 
 // local ACL (pre-T10; bridge is the real gate post-T10)
 setAllowed(mirrorFile, agent, true);
@@ -138,7 +148,7 @@ function readLivePid(path) {
 const livePid = readLivePid(lockFile);
 
 process.stderr.write(`[join] ${agent} → ${chatId} via ${joinUrl}\n`);
-process.stderr.write(`[join] mirror: ${mirrorFile}\n`);
+process.stderr.write(`[join] mirror: ${mirrorFile} (${mirrorSource})\n`);
 
 let bridge = null;
 
