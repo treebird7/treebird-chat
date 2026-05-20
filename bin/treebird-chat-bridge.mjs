@@ -8,6 +8,7 @@ import { createFileCursorStore } from '../lib/bridge-cursor.mjs';
 import { createMarkdownArchive } from '../lib/markdown-archive.mjs';
 import { AuthError, createSmalltoakTransport } from '../lib/smalltoak-transport.mjs';
 import { loadPin } from '../lib/smalltoak-pin.mjs';
+import { formatBridgeError } from '../lib/bridge-errors.mjs';
 import { loadEnv } from '../lib/config.mjs';
 
 loadEnv();
@@ -111,10 +112,14 @@ async function main() {
     process.exit(EXIT.OK);
   } catch (error) {
     if (error instanceof AuthError || error?.code === 'AUTH') {
-      process.stderr.write(`${error.message}\n`);
+      process.stderr.write(`${formatBridgeError({
+        error, op: 'auth', url: transport.baseUrl, chatId: args.chatId,
+      })}\n`);
       process.exit(EXIT.REVOKED);
     }
-    process.stderr.write(`treebird-chat-bridge error: ${error.stack || error.message}\n`);
+    process.stderr.write(`${formatBridgeError({
+      error, op: 'bridge', url: transport.baseUrl, chatId: args.chatId,
+    })}\n`);
     process.exit(EXIT.ERROR);
   }
 }
