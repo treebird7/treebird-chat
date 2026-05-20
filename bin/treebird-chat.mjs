@@ -21,6 +21,8 @@ import { findSessionByPath, resolvePublicUrl } from '../lib/config.mjs';
 import { resolveLink, parseLinks } from '../lib/wikilink.mjs';
 import { readSubs, addSub, closeSubInParent } from '../lib/subs.mjs';
 import { readInviterCert, composeRemoteInvite, composeLocalInvite } from '../lib/invite-block.mjs';
+import { autoStageSub } from '../lib/sub-git.mjs';
+import { spawnSubBridge } from '../lib/sub-bridge.mjs';
 
 const MAX_LINES = 3;
 const COLORS = ['\x1b[36m', '\x1b[35m', '\x1b[33m', '\x1b[32m', '\x1b[34m', '\x1b[91m', '\x1b[95m'];
@@ -341,10 +343,34 @@ rl.on('line', async (raw) => {
     const subLabel = basename(subFile, extname(subFile));
     await appendLines(filePath, agent, [`/sub ${topic} → [[${subLabel}]]`]);
 
+    // P2.1: auto-stage the new sub + ACL. No commit, no push — explicit user
+    // action. Best-effort: failure does not abort sub creation.
+    const stage = autoStageSub(subFile);
+
+    // P2.1: spawn the sub-↔-smalltoak bridge so peer machines can join the
+    // sub via `treebird-chat-join <sub-chat-id> --as <agent>` immediately.
+    const bridge = spawnSubBridge({
+      parentFile: filePath, subFile, subTopic: topic, agent,
+    });
+
+    // Announce the bridge state inside the sub file as a single line, so an
+    // agent reading the sub knows whether they're in a relayed or local-only
+    // room without grepping logs.
+    if (bridge.spawned) {
+      await appendLines(subFile, 'system', [
+        `bridge live — chat-id=${bridge.chatId} pid=${bridge.pid}${bridge.attached ? ' (attached existing)' : ''}`,
+      ]);
+    }
+
     printBox([
       `${BOLD}sub-chat created${RESET}: ${DIM}${subFile}${RESET}`,
+      `${DIM}git: ${stage.staged ? `staged ${stage.files?.length ?? 0} file(s)` : stage.reason}${RESET}`,
+      `${DIM}bridge: ${bridge.spawned
+        ? `${bridge.chatId} (pid ${bridge.pid}${bridge.attached ? ', attached' : ', new'})`
+        : bridge.reason}${RESET}`,
       `${DIM}open in a new pane:${RESET}`,
       `  treebird-chat ${subFile} --as ${agent}`,
+      ...(bridge.spawned ? [`${DIM}or from another machine:${RESET}`, `  treebird-chat-join ${bridge.chatId} --as <agent>`] : []),
       ...(extraAgents.length ? [`${DIM}invited: ${extraAgents.join(', ')}${RESET}`] : []),
     ]);
     rl.prompt(); return;
