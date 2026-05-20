@@ -117,20 +117,15 @@ Short, focused. Prefix with module: `corrwait: filter self-wakes` or `lib/watche
 
 ### Tests
 
-Currently smoke-tested via inline bash scripts in conversation history. No formal test suite yet — TODO. When adding one, prefer Node's `--test` runner over a heavy framework.
+`node --test test/` — 63 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, and corrwait. Use Node's `--test` runner; no heavy framework.
 
 ## Working on treebird-chat
 
 If you're modifying treebird-chat itself:
 
 - Changes to `bin/` or `lib/` are local to `~/Dev/treebird-chat/`.
-- The same code is mirrored to `~/treebird-shared/treebird-chat/` for cross-machine availability via Syncthing. **After editing source files, copy to shared:**
-  ```bash
-  cp -u ~/Dev/treebird-chat/bin/* ~/treebird-shared/treebird-chat/bin/
-  cp -u ~/Dev/treebird-chat/lib/* ~/treebird-shared/treebird-chat/lib/
-  cp -u ~/Dev/treebird-chat/package.json ~/treebird-shared/treebird-chat/
-  ```
-- Or set up a watch script. Not done yet.
+- This is the canonical production repo. Agents pull from here (or the GitHub mirror). **`~/treebird-shared/birdchat/` is deprecated** — it was an older private fork and is no longer the sync target. Private specs that lived in birdchat now belong in `~/Dev/treebird/`.
+- Cross-machine availability is via git (`gh repo clone` / `git pull`), not Syncthing file sync.
 
 ## Working *with* treebird-chat as an agent
 
