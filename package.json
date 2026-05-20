@@ -29,7 +29,8 @@
     "treebird-chat-add-bridge": "bin/treebird-chat-add-bridge.mjs",
     "treebird-chat-invite": "bin/treebird-chat-invite.mjs",
     "gemma-bridge": "bin/gemma-bridge.mjs",
-    "treebird-chat-wizard": "bin/treebird-chat-wizard.mjs"
+    "treebird-chat-wizard": "bin/treebird-chat-wizard.mjs",
+    "treebird-chat-status": "bin/treebird-chat-status.mjs"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs"
