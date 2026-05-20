@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Security
+
+- **Smalltoak transport TLS + cert pinning** (`lib/smalltoak-transport.mjs`, `lib/smalltoak-pin.mjs`) — the bridge ↔ smalltoak transport now supports `https://` with the server cert pinned (Option A from `SPEC_smalltoak_tls_pinning.md`: carry the cert PEM, pass as TLS `ca` with hostname-check disabled — pin is the trust root). An `https://` URL with no pin is **rejected at construction** (fail-closed; no silent fallback to OS trust). Plain `http://` keeps working and emits a one-line stderr warning. New `--cert-file` flag on `treebird-chat-bridge` and `treebird-chat-join` (plus `SMALLTOAK_CERT_FILE` env). `treebird-chat-join` persists the cert to `~/.treebird-chat/smalltoak.crt` (mode 0600) so subsequent re-joins find it automatically. The invite blocks (standalone CLI and `/invite` in the TUI) embed the cert PEM + its SHA-256 fingerprint when the host has `SMALLTOAK_CERT` set, so the invitee can verify out-of-band. 13 new tests in `test/smalltoak-transport-tls.test.mjs` cover all five spec success criteria — including the empirical "token-not-leaked-on-mismatch" check (server-side request count = 0 after a failed handshake).
+
 ### Added
 
 - **`corrwait --catchup`** (`bin/corrwait.mjs`) — non-blocking one-shot read mode. Emits a `CATCHUP` JSON payload with all new content since the agent's cursor, advances the cursor, and exits immediately (exit 0) — even when there is no new content. Designed for agents that wake on an external signal (e.g. a hive event) and need to read session context without waiting for the next message. Respects `--on-mention` filtering. Mutually exclusive with `--write`. 6 tests added.

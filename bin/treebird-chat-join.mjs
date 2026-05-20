@@ -9,30 +9,32 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnv, resolvePublicUrl, spawnEnv } from '../lib/config.mjs';
 import { verifyAgentIdentity } from '../lib/identity.mjs';
 import { setAllowed } from '../lib/access.mjs';
 import { closeSubInParent } from '../lib/subs.mjs';
+import { loadPin, fingerprintFromPem } from '../lib/smalltoak-pin.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 
 loadEnv();
 
-let chatId = null, asArg = null, smalltoakUrl = null, tui = false, parentFile = null;
+let chatId = null, asArg = null, smalltoakUrl = null, tui = false, parentFile = null, certFileArg = null;
 {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--as') asArg = argv[++i];
     else if (argv[i] === '--smalltoak-url') smalltoakUrl = argv[++i];
     else if (argv[i] === '--parent') parentFile = argv[++i];
+    else if (argv[i] === '--cert-file') certFileArg = argv[++i];
     else if (argv[i] === '--tui') tui = true;
     else if (!argv[i].startsWith('--') && !chatId) chatId = argv[i];
   }
 }
 if (!chatId) {
-  process.stderr.write('usage: treebird-chat-join <chatId> [--smalltoak-url URL] [--as agent] [--tui]\n');
+  process.stderr.write('usage: treebird-chat-join <chatId> [--smalltoak-url URL] [--as agent] [--cert-file PATH] [--tui]\n');
   process.exit(1);
 }
 if (!/^[a-zA-Z0-9_-]+$/.test(chatId)) {
@@ -53,6 +55,47 @@ if (!smalltoakUrl) {
   process.exit(1);
 }
 const { url: joinUrl } = resolvePublicUrl(smalltoakUrl);
+
+// ── Cert pinning (Option A from SPEC_smalltoak_tls_pinning.md) ──────────────
+// If joining an https:// smalltoak the bridge needs the pin or it'll refuse.
+// Source: --cert-file > SMALLTOAK_CERT_FILE env > persisted default location.
+// Anything we accept is copied to the default location (mode 0600) so the
+// bridge spawn just needs the env var, and subsequent joins find it auto.
+
+const DEFAULT_CERT_PATH = join(homedir(), '.treebird-chat', 'smalltoak.crt');
+let certFile =
+  certFileArg ||
+  process.env.SMALLTOAK_CERT_FILE ||
+  (existsSync(DEFAULT_CERT_PATH) ? DEFAULT_CERT_PATH : null);
+
+if (certFile) {
+  // Validate before persisting — a broken PEM should fail loudly here,
+  // not 5s later inside the spawned bridge.
+  let pem;
+  try { pem = loadPin(certFile); }
+  catch (e) {
+    process.stderr.write(`[join] ${e.message}\n`);
+    process.exit(1);
+  }
+  // If the user passed --cert-file pointing somewhere other than our default,
+  // mirror it into ~/.treebird-chat/smalltoak.crt (0600). The dir is already
+  // 0700 (matches the existing token-storage convention).
+  const absSource = pathResolve(certFile);
+  if (absSource !== DEFAULT_CERT_PATH) {
+    mkdirSync(dirname(DEFAULT_CERT_PATH), { recursive: true, mode: 0o700 });
+    writeFileSync(DEFAULT_CERT_PATH, pem, { mode: 0o600 });
+    process.stderr.write(`[join] cert persisted to ${DEFAULT_CERT_PATH}\n`);
+    certFile = DEFAULT_CERT_PATH;
+  }
+  process.stderr.write(`[join] cert SHA-256: ${fingerprintFromPem(pem)}\n`);
+} else if (joinUrl.startsWith('https://')) {
+  process.stderr.write(
+    '[join] ERROR: https:// requires --cert-file (or SMALLTOAK_CERT_FILE), no pin found.\n' +
+    '       Get the cert from the session host (see /invite output) and re-run with:\n' +
+    `         --cert-file <path-to-cert.pem>\n`
+  );
+  process.exit(1);
+}
 
 const token = process.env.SMALLTOAK_TOKEN;
 if (!token) {
@@ -102,11 +145,24 @@ let bridge = null;
 if (livePid) {
   process.stderr.write(`[join] bridge already running (pid ${livePid}), attaching\n`);
 } else {
+  const bridgeArgs = [
+    join(__dir, 'treebird-chat-bridge.mjs'),
+    chatId, mirrorFile,
+    '--smalltoak-url', joinUrl,
+    '--as', agent,
+  ];
+  if (certFile) bridgeArgs.push('--cert-file', certFile);
   bridge = spawn(
     process.execPath,
-    [join(__dir, 'treebird-chat-bridge.mjs'), chatId, mirrorFile, '--smalltoak-url', joinUrl, '--as', agent],
+    bridgeArgs,
     {
-      env: spawnEnv({ SMALLTOAK_TOKEN: token, BIRDCHAT_AGENT: agent }),
+      env: spawnEnv({
+        SMALLTOAK_TOKEN: token,
+        BIRDCHAT_AGENT: agent,
+        // Belt-and-braces: env-pass the cert path too, so a bridge that loses
+        // its argv (unlikely but possible via wrapper scripts) still pins.
+        ...(certFile ? { SMALLTOAK_CERT_FILE: certFile } : {}),
+      }),
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
     }

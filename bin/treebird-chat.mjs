@@ -20,6 +20,7 @@ import { FLAT_RE } from '../lib/watcher.mjs';
 import { findSessionByPath, resolvePublicUrl } from '../lib/config.mjs';
 import { resolveLink, parseLinks } from '../lib/wikilink.mjs';
 import { readSubs, addSub, closeSubInParent } from '../lib/subs.mjs';
+import { readInviterCert, composeRemoteInvite, composeLocalInvite } from '../lib/invite-block.mjs';
 
 const MAX_LINES = 3;
 const COLORS = ['\x1b[36m', '\x1b[35m', '\x1b[33m', '\x1b[32m', '\x1b[34m', '\x1b[91m', '\x1b[95m'];
@@ -256,16 +257,25 @@ rl.on('line', async (raw) => {
     setAllowed(filePath, invitee, true);
     await appendLines(filePath, agent, [`/invite ${invitee} — joined the chat`]);
 
-    const W = '═'.repeat(56);
     const session = findSessionByPath(filePath);
     if (session?.smalltoakUrl && session?.chatId) {
       const { chatId, smalltoakUrl } = session;
       const { url: joinUrl, alternates } = resolvePublicUrl(smalltoakUrl);
-      const altLine = alternates.length ? `\n    # alternates: ${alternates.join('  ')}` : '';
-      const altNote = alternates.length ? `\n    # alt: ${alternates.join('  ')}` : '';
-      process.stdout.write(`\n${W}\n treebird-chat invite — ${invitee}  [cross-machine]\n${W}\n\n One-time token setup (skip if already done):\n\n    mkdir -p ~/.treebird-chat && chmod 700 ~/.treebird-chat\n    printf 'SMALLTOAK_TOKEN=%s\\n' \\\n      "$(envoak vault get treebird-chat SMALLTOAK_TOKEN)" \\\n      >> ~/.treebird-chat/.env\n    chmod 600 ~/.treebird-chat/.env\n\n Join:\n\n    node ~/Dev/treebird-chat/bin/treebird-chat-join.mjs \\\n      ${chatId} \\\n      --smalltoak-url ${joinUrl} \\\n      --as ${invitee}${altNote}\n\n Add --tui for the interactive chat interface.\n\n${W}\n\n`);
+      const cert = readInviterCert();
+      if (joinUrl.startsWith('https://') && !cert) {
+        // Same fail-closed reasoning as the standalone invite CLI — never
+        // emit an https:// invite without a pin block.
+        process.stdout.write(`${DIM}cannot emit https:// invite: no SMALLTOAK_CERT in env. ` +
+          `Start treebird-chat with SMALLTOAK_CERT set to the server's cert path.${RESET}\n`);
+      } else {
+        process.stdout.write(composeRemoteInvite({
+          chatId, joinUrl, invitee, alternates, cert,
+        }));
+        process.stdout.write('\n');
+      }
     } else {
-      process.stdout.write(`\n${W}\n treebird-chat invite — ${invitee}\n${W}\n\n File: ${filePath}\n\n Wait for messages:\n\n   corrwait ${filePath} --as ${invitee} --timeout 540\n\n When woken, reply:\n\n   printf '[%s ${invitee}] your reply\\n' "$(date +%H:%M)" >> ${filePath}\n\n${W}\n\n`);
+      process.stdout.write(composeLocalInvite({ invitee, filePath }));
+      process.stdout.write('\n');
     }
     rl.prompt();
     return;

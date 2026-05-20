@@ -2,12 +2,21 @@
 // treebird-chat-invite <file> <agent> [--smalltoak-url URL] [--chat-id ID]
 //
 // Prints a self-contained invite block for an agent to copy-paste into their
-// Claude Code session. Works for local (same-machine) and smalltoak (remote) setups.
+// Claude Code session. Works for local (same-machine) and smalltoak (remote)
+// setups. When the server is running TLS (SMALLTOAK_CERT in env), the invite
+// embeds the pinned cert + its SHA-256 fingerprint.
 
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { isValidAgentName } from '../lib/identity.mjs';
-import { resolvePublicUrl } from '../lib/config.mjs';
+import { loadEnv, resolvePublicUrl } from '../lib/config.mjs';
+import {
+  readInviterCert,
+  composeRemoteInvite,
+  composeLocalInvite,
+} from '../lib/invite-block.mjs';
+
+loadEnv();
 
 function parseArgs(argv) {
   const args = { file: null, agent: null, smalltoakUrl: null, chatId: null };
@@ -39,62 +48,23 @@ if (!existsSync(filePath)) {
   process.exit(1);
 }
 
-const W = '═'.repeat(56);
-const line = '─'.repeat(56);
-
 if (smalltoakUrl && chatId) {
   // Remote / cross-machine invite. A localhost URL would point the invitee at
   // their own machine — rewrite to this host's reachable IP.
   const { url: joinUrl, alternates } = resolvePublicUrl(smalltoakUrl);
-  const altLine = alternates.length
-    ? `\n    # alternates: ${alternates.join('  ')}`
-    : '';
-  const altNote = alternates.length ? `\n    # alt: ${alternates.join('  ')}` : '';
-  process.stdout.write(`
-${W}
- treebird-chat invite — ${agent}  [cross-machine]
-${W}
-
- One-time token setup (skip if already done):
-
-    mkdir -p ~/.treebird-chat && chmod 700 ~/.treebird-chat
-    printf 'SMALLTOAK_TOKEN=%s\\n' \\
-      "$(envoak vault get treebird-chat SMALLTOAK_TOKEN)" \\
-      >> ~/.treebird-chat/.env
-    chmod 600 ~/.treebird-chat/.env
-
- Join:
-
-    node ~/Dev/treebird-chat/bin/treebird-chat-join.mjs \\
-      ${chatId} \\
-      --smalltoak-url ${joinUrl} \\
-      --as ${agent}${altNote}
-
- Add --tui for the interactive chat interface.
-
-${W}
-`);
+  const cert = readInviterCert();
+  // Sanity: if the URL is https:// but no cert is in env, the resulting
+  // invite would silently lack a pin — refuse to print one we know is unsafe.
+  if (joinUrl.startsWith('https://') && !cert) {
+    process.stderr.write(
+      'Refusing to print invite: smalltoak-url is https:// but no SMALLTOAK_CERT[_FILE] is set.\n' +
+      'The invitee would have no pin to verify the server. Set SMALLTOAK_CERT in env, or switch to http://.\n'
+    );
+    process.exit(1);
+  }
+  process.stdout.write(composeRemoteInvite({
+    chatId, joinUrl, invitee: agent, alternates, cert,
+  }));
 } else {
-  // Local / same-machine invite
-  process.stdout.write(`
-${W}
- treebird-chat invite — ${agent}
-${W}
-
- You've been invited to a treebird-chat session.
- File: ${filePath}
-
- Wait for messages (runs until woken):
-
-   corrwait ${filePath} --as ${agent} --timeout 540
-
- When it wakes (prints JSON with reason: WAKE), reply:
-
-   printf '[%s ${agent}] your reply\\n' "$(date +%H:%M)" >> ${filePath}
-
- Then run corrwait again to keep listening.
- Exit anytime — re-running corrwait picks up where you left off.
-
-${W}
-`);
+  process.stdout.write(composeLocalInvite({ invitee: agent, filePath }));
 }
