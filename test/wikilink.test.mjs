@@ -1,9 +1,9 @@
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { parseLinks, classify, isActive, resolveLink } from '../lib/wikilink.mjs';
+import { writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { join, sep } from 'node:path';
+import { tmpdir, homedir } from 'node:os';
+import { parseLinks, classify, isActive, resolveLink, isContained } from '../lib/wikilink.mjs';
 
 // ── parseLinks ────────────────────────────────────────────────────────────────
 
@@ -175,4 +175,120 @@ describe('resolveLink', () => {
   });
 
   after(() => rmSync(dir, { recursive: true, force: true }));
+});
+
+// ── isContained ───────────────────────────────────────────────────────────────
+
+describe('isContained', () => {
+  it('accepts a path equal to a root', () => {
+    assert.equal(isContained('/a/b', ['/a/b']), true);
+  });
+
+  it('accepts a path inside a root', () => {
+    assert.equal(isContained('/a/b/c.md', ['/a/b']), true);
+  });
+
+  it('accepts a path inside any of several roots', () => {
+    assert.equal(isContained('/x/y/file.md', ['/a/b', '/x/y']), true);
+  });
+
+  it('rejects a path that escapes via ../', () => {
+    // join('/a/b', '../secret') resolves to /a/secret — outside /a/b.
+    assert.equal(isContained(join('/a/b', '../secret'), ['/a/b']), false);
+  });
+
+  it('rejects a path with a directory-prefix false match', () => {
+    // /a/bc is not inside /a/b (must check the trailing separator).
+    assert.equal(isContained('/a/bc/file.md', ['/a/b']), false);
+  });
+
+  it('rejects a path outside any root', () => {
+    assert.equal(isContained('/etc/passwd', ['/a/b', '/x/y']), false);
+  });
+});
+
+// ── resolveLink — path traversal ──────────────────────────────────────────────
+
+describe('resolveLink — path traversal', () => {
+  // Layout:
+  //   <tmp>/wikilink-trav-<rand>/
+  //     outside.md            ← escape target, NOT a workspace root
+  //     inner/                ← the sole search dir (sibling of `from`)
+  //       from.md             ← the file containing the link
+  //       legit.md            ← a legit in-root link target
+  const root = join(tmpdir(), `wikilink-trav-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+  const inner = join(root, 'inner');
+  mkdirSync(inner, { recursive: true });
+  const outside = join(root, 'outside.md');
+  const from = join(inner, 'from.md');
+  const legit = join(inner, 'legit.md');
+  writeFileSync(outside, '# secret outside\n');
+  writeFileSync(from, '[10:00 artisan] hi\n');
+  writeFileSync(legit, '# legit\n');
+
+  it('plain [[legit]] resolves (positive control)', () => {
+    const r = resolveLink('legit', { from, workspaceRoots: [] });
+    assert.equal(r.path, legit);
+    assert.equal(r.type, 'doc');
+  });
+
+  it('plain [[../outside]] does NOT escape sibling dir', () => {
+    // Without the guard, join(inner, '../outside.md') = outside.md and existsSync passes.
+    const r = resolveLink('../outside', { from, workspaceRoots: [] });
+    assert.equal(r.path, null, 'traversal target must not resolve');
+    assert.equal(r.type, 'missing');
+  });
+
+  it('plain [[../../etc/passwd]] does NOT escape', () => {
+    const r = resolveLink('../../etc/passwd', { from, workspaceRoots: [] });
+    assert.equal(r.path, null);
+    assert.equal(r.type, 'missing');
+  });
+
+  it('plain [[../outside]] does NOT escape any of multiple workspace roots', () => {
+    // Even with extra workspace roots, traversal still must not reach outside.md.
+    const r = resolveLink('../outside', { from, workspaceRoots: [inner] });
+    assert.equal(r.path, null);
+    assert.equal(r.type, 'missing');
+  });
+
+  it('mem: slug containing ../ returns null path', () => {
+    // resolveMem hardcodes memory roots under ~/.claude/projects; we can't easily
+    // override them. But the guard runs unconditionally — any slug with ../ that
+    // would escape to a real file path returns null. We test the structural
+    // contract: traversal slug → path: null.
+    const r = resolveLink('mem:../../../../../../../../tmp/anything', { from, workspaceRoots: [] });
+    assert.equal(r.path, null);
+    assert.equal(r.type, 'mem');
+  });
+
+  it('mem: slug with embedded ../ in middle returns null', () => {
+    const r = resolveLink('mem:safe/../../escape', { from, workspaceRoots: [] });
+    assert.equal(r.path, null);
+    assert.equal(r.type, 'mem');
+  });
+
+  it('sub: topic with ../ is sanitised, cannot escape to parent dir', () => {
+    // resolveSub replaces non-[A-Za-z0-9_-] with '-', so '../../etc/passwd' becomes
+    // '------etc-passwd'. The proposed path lives inside dirname(from), never above.
+    const r = resolveLink('sub:../../etc/passwd', { from, workspaceRoots: [] });
+    assert.equal(r.type, 'sub');
+    // Whether it returns a proposed path or a found match, the path must live
+    // under `inner/` — never escape to `root/` or `/etc/`.
+    if (r.path) {
+      assert.ok(
+        r.path.startsWith(inner + sep) || r.path === inner,
+        `sub path must stay under ${inner}, got: ${r.path}`,
+      );
+      // And the sanitised topic must not contain any path separator characters.
+      assert.ok(!r.path.includes('/etc/'), 'sanitised path must not contain raw /etc/');
+    }
+  });
+
+  it('plain [[legit]] still works after traversal attempts (no global state pollution)', () => {
+    const r = resolveLink('legit', { from, workspaceRoots: [] });
+    assert.equal(r.path, legit);
+  });
+
+  after(() => rmSync(root, { recursive: true, force: true }));
 });
