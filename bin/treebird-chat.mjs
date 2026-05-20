@@ -292,8 +292,17 @@ rl.on('line', async (raw) => {
     }
     // Parse optional --invite flag
     const inviteMatch = parts.match(/^(.*?)\s+--invite\s+(.+)$/);
-    const topic = (inviteMatch ? inviteMatch[1] : parts).trim().replace(/\s+/g, '-');
+    const rawTopic = (inviteMatch ? inviteMatch[1] : parts).trim();
     const extraAgents = inviteMatch ? inviteMatch[2].split(',').map(a => a.trim()).filter(Boolean) : [];
+
+    // Reject path-like args — user probably pasted a file path meaning /open
+    if (rawTopic.includes('/') || rawTopic.startsWith('~') || rawTopic.startsWith('.') ||
+        rawTopic.endsWith('.md') || rawTopic.length > 48) {
+      process.stdout.write(`${BOLD}/sub${RESET} expects a short slug (e.g. "run-3"), not a path.\n`);
+      process.stdout.write(`${DIM}To open an existing sub: /open <name>${RESET}\n`);
+      rl.prompt(); return;
+    }
+    const topic = rawTopic.replace(/\s+/g, '-');
 
     const resolved = resolveLink(`sub:${topic}`, { from: filePath, workspaceRoots: [] });
     const subFile = resolved.path;
