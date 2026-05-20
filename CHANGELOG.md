@@ -4,6 +4,8 @@
 
 ### Added
 
+- **`corrwait --catchup`** (`bin/corrwait.mjs`) — non-blocking one-shot read mode. Emits a `CATCHUP` JSON payload with all new content since the agent's cursor, advances the cursor, and exits immediately (exit 0) — even when there is no new content. Designed for agents that wake on an external signal (e.g. a hive event) and need to read session context without waiting for the next message. Respects `--on-mention` filtering. Mutually exclusive with `--write`. 6 tests added.
+
 - **History on join** (`bin/treebird-chat.mjs`) — TUI now prints the last 30 protocol lines as a history block on startup (with a `── history ──` / `── live ──` separator) before entering tail mode. Previously the cursor was set to end-of-file, so late joiners saw no context.
 - **`/open <topic>` sub-collab shortcut** (`bin/treebird-chat.mjs`) — `/open device-link` now falls back to `sub:device-link` when the plain lookup finds nothing, so you can reference subs by topic name without the prefix. When the resolved type is `sub`, the command prints the `treebird-chat <path> --as <agent>` join command instead of opening the file in a pager.
 - **Wikilink resolver** (`lib/wikilink.mjs`) — parses `[[target]]` syntax and resolves to file path, type (`chat` | `doc` | `sub` | `task` | `mem`), and active status. Supports `sub:`, `task:`, `mem:` prefixes; plain `[[filename]]` searches sibling dir then workspace roots. Active detection via `.bridge-cursor.json` sidecar or parent `.subs.json` entry.
