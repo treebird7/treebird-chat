@@ -177,7 +177,7 @@ async function main() {
     // even if the agent chooses to stay quiet (no self-message to advance the
     // implicit cursor). Cursor = number of real lines (excluding the trailing
     // empty that `split('\n')` produces for files ending in '\n').
-    if (reason === 'WAKE') {
+    if (reason === 'WAKE' || reason === 'URGENT_WAKE') {
       try {
         const lines = snapshot(filePath).lines;
         const realLines = lines.length > 0 && lines[lines.length - 1] === ''
