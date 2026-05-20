@@ -24,6 +24,7 @@
     "treebird-chat-allow": "bin/treebird-chat-allow.mjs",
     "treebird-chat-deny": "bin/treebird-chat-deny.mjs",
     "treebird-chat-bridge": "bin/treebird-chat-bridge.mjs",
+    "treebird-chat-join": "bin/treebird-chat-join.mjs",
     "treebird-chat-watch": "bin/treebird-chat-watch.mjs",
     "treebird-chat-session": "bin/treebird-chat-session.mjs",
     "treebird-chat-add-bridge": "bin/treebird-chat-add-bridge.mjs",
