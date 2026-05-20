@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import { dirname, join, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadEnv, resolvePublicUrl, resolveMirrorFile, spawnEnv } from '../lib/config.mjs';
+import { supervise } from '../lib/corrwait-supervisor.mjs';
 import { verifyAgentIdentity } from '../lib/identity.mjs';
 import { setAllowed } from '../lib/access.mjs';
 import { closeSubInParent } from '../lib/subs.mjs';
@@ -220,31 +221,18 @@ if (tui) {
 } else {
   process.stderr.write(`[join] corrwait loop running — Ctrl-C to leave\n\n`);
   const corrwait = join(__dir, 'corrwait.mjs');
-  while (true) {
-    const cw = spawn(
-      process.execPath,
-      [corrwait, mirrorFile, '--as', agent, '--timeout', '540', '--end-word', '/end'],
-      { env: spawnEnv({ BIRDCHAT_AGENT: agent }), stdio: ['ignore', 'pipe', 'pipe'] }
-    );
-    let out = '';
-    cw.stdout.on('data', d => { out += d.toString(); });
-    cw.stderr.on('data', d => process.stderr.write(d));
-    const code = await new Promise(r => cw.on('exit', r));
-    if (code === 0) {
-      try {
-        const d = JSON.parse(out);
-        process.stdout.write(`WAKE ${new Date().toLocaleTimeString()}\n`);
-        for (const line of d.wakeLines || []) process.stdout.write(`  ${line}\n`);
-        process.stdout.write(JSON.stringify(d) + '\n');
-      } catch { process.stdout.write(out + '\n'); }
-    } else if (code === 1 || code === 3) {
-      cleanup('session ended');
-    } else if (code === 2) {
-      // timeout — re-arm silently
-    } else {
-      process.stderr.write(`[corrwait] unexpected exit ${code}\n`);
-      break;
-    }
-  }
-  cleanup();
+  // P3: supervised loop. Same shape, observable restarts + panic threshold.
+  const result = await supervise({
+    corrwaitBin: corrwait,
+    filePath: mirrorFile,
+    agent,
+    extraArgs: ['--end-word', '/end'],
+    onWake: (payload) => {
+      process.stdout.write(`WAKE ${new Date().toLocaleTimeString()}${payload.fromCatchup ? ' (catchup)' : ''}\n`);
+      for (const line of payload.wakeLines || []) process.stdout.write(`  ${line}\n`);
+      process.stdout.write(JSON.stringify(payload) + '\n');
+    },
+  });
+  if (result.reason === 'PANIC') process.stderr.write(`[join] supervisor panicked after ${result.restarts} restarts — exiting\n`);
+  cleanup(result.reason === 'PANIC' ? 'supervisor panic' : 'session ended');
 }
