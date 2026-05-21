@@ -151,7 +151,53 @@ const livePid = readLivePid(lockFile);
 process.stderr.write(`[join] ${agent} → ${chatId} via ${joinUrl}\n`);
 process.stderr.write(`[join] mirror: ${mirrorFile} (${mirrorSource})\n`);
 
-let bridge = null;
+// Supervised bridge loop — restarts the smalltoak bridge on crash with
+// exponential backoff. Five restarts inside 60 s triggers a panic log and
+// stops. Runs concurrently with the corrwait supervisor; neither loop owns
+// the other. P3 acceptance criterion: kill bridge mid-session, restarts
+// within 10 s (backoff starts at 1 s).
+async function runBridgeLoop({ bridgeArgs, env, lockFile: lf, signal }) {
+  const PANIC_COUNT = 5;
+  const PANIC_WINDOW_MS = 60_000;
+  const MAX_BACKOFF_MS = 30_000;
+  let backoffMs = 1_000;
+  const starts = [];
+
+  while (!signal.aborted) {
+    const now = Date.now();
+    starts.push(now);
+    while (starts.length && starts[0] < now - PANIC_WINDOW_MS) starts.shift();
+    if (starts.length > PANIC_COUNT) {
+      process.stderr.write(`[bridge] PANIC: ${PANIC_COUNT} restarts in ${Math.round(PANIC_WINDOW_MS / 1000)}s — giving up\n`);
+      break;
+    }
+
+    const proc = spawn(process.execPath, bridgeArgs, {
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false,
+    });
+    proc.stdout.on('data', d => process.stderr.write(`[bridge] ${d}`));
+    proc.stderr.on('data', d => process.stderr.write(`[bridge] ${d}`));
+    proc.on('spawn', () => {
+      try { writeFileSync(lf, String(proc.pid), { mode: 0o600 }); } catch {}
+    });
+
+    const exitCode = await new Promise(r => proc.on('exit', r));
+    try { rmSync(lf); } catch {}
+    if (signal.aborted) break;
+
+    process.stderr.write(`[bridge] exited (code ${exitCode ?? 'null'}), restarting in ${backoffMs}ms\n`);
+    await new Promise(r => {
+      const t = setTimeout(r, backoffMs);
+      signal.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true });
+    });
+    backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+  }
+  try { rmSync(lf); } catch {}
+}
+
+const bridgeController = new AbortController();
 
 if (livePid) {
   process.stderr.write(`[join] bridge already running (pid ${livePid}), attaching\n`);
@@ -163,25 +209,18 @@ if (livePid) {
     '--as', agent,
   ];
   if (certFile) bridgeArgs.push('--cert-file', certFile);
-  bridge = spawn(
-    process.execPath,
+  // Intentionally not awaited — runs concurrently with the corrwait supervisor.
+  runBridgeLoop({
     bridgeArgs,
-    {
-      env: spawnEnv({
-        SMALLTOAK_TOKEN: token,
-        BIRDCHAT_AGENT: agent,
-        // Belt-and-braces: env-pass the cert path too, so a bridge that loses
-        // its argv (unlikely but possible via wrapper scripts) still pins.
-        ...(certFile ? { SMALLTOAK_CERT_FILE: certFile } : {}),
-      }),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false,
-    }
-  );
-  bridge.stdout.on('data', d => process.stderr.write(`[bridge] ${d}`));
-  bridge.stderr.on('data', d => process.stderr.write(`[bridge] ${d}`));
-  bridge.on('spawn', () => {
-    writeFileSync(lockFile, String(bridge.pid), { mode: 0o600 });
+    env: spawnEnv({
+      SMALLTOAK_TOKEN: token,
+      BIRDCHAT_AGENT: agent,
+      // Belt-and-braces: env-pass the cert path too, so a bridge that loses
+      // its argv (unlikely but possible via wrapper scripts) still pins.
+      ...(certFile ? { SMALLTOAK_CERT_FILE: certFile } : {}),
+    }),
+    lockFile,
+    signal: bridgeController.signal,
   });
 }
 
@@ -191,24 +230,14 @@ const cleanup = async (msg) => {
     try { await closeSubInParent(parentFile, mirrorFile, null, agent); }
     catch (e) { process.stderr.write(`[join] parent close failed: ${e.message}\n`); }
   }
-  if (bridge) {
-    try { rmSync(lockFile); } catch {}
-    try { bridge.kill(); } catch {}
-  }
+  bridgeController.abort();
   process.exit(0);
 };
 process.on('SIGINT', () => cleanup('leaving'));
 process.on('SIGTERM', () => cleanup('terminated'));
 
-if (bridge) {
-  bridge.on('exit', code => {
-    try { rmSync(lockFile); } catch {}
-    cleanup(code ? `bridge exited ${code}` : 'bridge closed');
-  });
-}
-
 // give bridge a moment to connect before listening (skip when attaching)
-if (bridge) await new Promise(r => setTimeout(r, 900));
+if (!livePid) await new Promise(r => setTimeout(r, 900));
 
 if (tui) {
   process.stderr.write('[join] opening TUI ...\n');

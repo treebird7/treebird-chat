@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn } from 'node:child_process';
 import os from 'node:os';
 import readline from 'node:readline';
-import { loadEnv, saveSession, loadSession, spawnEnv } from '../lib/config.mjs';
+import { loadEnv, localIPv4s, saveSession, loadSession, spawnEnv } from '../lib/config.mjs';
 import { loadPin, fingerprintFromPem } from '../lib/smalltoak-pin.mjs';
 
 // Load .env / ~/.treebird-chat/.env before anything reads process.env
@@ -57,14 +57,6 @@ function section(msg) { process.stdout.write(`\n${B}${msg}${R}\n`); }
 
 function today() { return new Date().toISOString().slice(0, 10); }
 
-function getLanIp() {
-  for (const ifaces of Object.values(os.networkInterfaces())) {
-    for (const iface of ifaces) {
-      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
-    }
-  }
-  return '127.0.0.1';
-}
 
 // Strip path separators / traversal from a user-supplied name before it
 // becomes part of a filename.
@@ -279,9 +271,29 @@ async function main() {
     // Use env values silently if available; only prompt for missing ones.
     smalltoakUrl = process.env.SMALLTOAK_SERVER_URL || null;
     if (!smalltoakUrl) {
-      smalltoakUrl = await askDefault('Smalltoak URL', `http://${getLanIp()}:3000`);
+      const primaryIp = localIPv4s()[0] || '127.0.0.1';
+      smalltoakUrl = await askDefault('Smalltoak URL', `http://${primaryIp}:3000`);
     } else {
       info(`Smalltoak URL: ${smalltoakUrl}`);
+    }
+    // Probe the URL — a 401 means smalltoak is alive and requires auth (expected).
+    // Catches IP typos before the session is committed to sessions.json.
+    try {
+      const probeRes = await fetch(`${smalltoakUrl}/messages?to=probe`, {
+        signal: AbortSignal.timeout(3_000),
+      });
+      if (probeRes.status === 401 || probeRes.status === 403) {
+        ok(`Smalltoak reachable (HTTP ${probeRes.status})`);
+      } else {
+        warn(`Smalltoak probe: HTTP ${probeRes.status} — unexpected; verify URL`);
+      }
+    } catch (e) {
+      const code = e.cause?.code ?? e.code ?? '';
+      const hint = code === 'ECONNREFUSED' ? 'nothing listening at that address — check IP and port' :
+        /ETIMEDOUT|ECONNRESET/.test(code) ? 'connection timed out — check IP/subnet' :
+        (e.message ?? 'unreachable').split('\n')[0];
+      warn(`Smalltoak probe failed: ${hint}`);
+      warn('URL may be wrong — proceed with caution or Ctrl-C to fix');
     }
     smalltoakToken = process.env.SMALLTOAK_TOKEN || null;
     if (!smalltoakToken) {
