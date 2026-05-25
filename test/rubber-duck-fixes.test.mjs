@@ -166,6 +166,66 @@ test('/ts-review#1 cursor file is written 0o600', async () => {
   }
 });
 
+// ── /ts-review input_validation: length caps ─────────────────────────────────
+
+test('/ts-review subChatId caps topic at 64 chars', async () => {
+  const { subChatId } = await import('../lib/sub-bridge.mjs');
+  const longTopic = 'x'.repeat(200);
+  const id = subChatId('parent', longTopic);
+  // Format: `<parent>-sub-<topic>`; topic portion capped at 64.
+  // Full id len = 'parent'.length + '-sub-'.length + 64 = 6 + 5 + 64 = 75.
+  assert.equal(id, `parent-sub-${'x'.repeat(64)}`);
+  assert.equal(id.length, 75);
+});
+
+test('/ts-review subChatId still works on short topics', async () => {
+  const { subChatId } = await import('../lib/sub-bridge.mjs');
+  assert.equal(subChatId('parent', 'short'), 'parent-sub-short');
+});
+
+test('/ts-review subChatId handles non-string topic without throwing', async () => {
+  const { subChatId } = await import('../lib/sub-bridge.mjs');
+  // String() coercion handles non-strings; the regex strips bad chars; slice
+  // bounds. Defense against an array/object slipping in via JSON deserialise.
+  assert.equal(subChatId('parent', 123), 'parent-sub-123');
+  assert.equal(subChatId('parent', null), 'parent-sub-null');
+});
+
+test('/ts-review appendLines truncates lines over 4000 chars with a marker', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rd-cap-line-'));
+  try {
+    const { appendLines } = await import('../lib/writer.mjs');
+    const f = join(dir, 'chat.md');
+    writeFileSync(f, '');
+    const huge = 'x'.repeat(10_000);
+    await appendLines(f, 'tester', [huge]);
+    const lines = readFileSync(f, 'utf8').split('\n').filter(Boolean);
+    assert.equal(lines.length, 1);
+    // Strip the [HH:MM tester] prefix to inspect the payload.
+    const m = lines[0].match(/^\[\d{2}:\d{2} tester\] (.+)$/);
+    assert.ok(m, 'line should have the standard prefix');
+    const payload = m[1];
+    assert.ok(payload.length <= 4000, `payload should be capped, got ${payload.length}`);
+    assert.match(payload, /\[…truncated\]$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('/ts-review appendLines passes through short lines unchanged', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rd-pass-'));
+  try {
+    const { appendLines } = await import('../lib/writer.mjs');
+    const f = join(dir, 'chat.md');
+    writeFileSync(f, '');
+    await appendLines(f, 'tester', ['normal message']);
+    const content = readFileSync(f, 'utf8');
+    assert.match(content, /\[\d{2}:\d{2} tester\] normal message\n/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('#5 ensureAcl explicit owner arg still wins over $USER', () => {
   const dir = mkdtempSync(join(tmpdir(), 'rd-acl-explicit-'));
   try {
