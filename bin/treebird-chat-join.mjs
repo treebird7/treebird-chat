@@ -38,8 +38,11 @@ if (!chatId) {
   process.stderr.write('usage: treebird-chat-join <chatId> [--smalltoak-url URL] [--as agent] [--cert-file PATH] [--tui]\n');
   process.exit(1);
 }
-if (!/^[a-zA-Z0-9_-]+$/.test(chatId)) {
-  process.stderr.write('Invalid chatId: must match [a-zA-Z0-9_-]+\n');
+// Char allowlist + length cap. 128 fits the worst sub-chat-id shape
+// (<parent-32>-sub-<topic-64>) plus margin without enabling resource-abuse
+// inputs. (/ts-review input_validation cap on argv.)
+if (!/^[a-zA-Z0-9_-]{1,128}$/.test(chatId)) {
+  process.stderr.write('Invalid chatId: must match /^[a-zA-Z0-9_-]{1,128}$/\n');
   process.exit(1);
 }
 
