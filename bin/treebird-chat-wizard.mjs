@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn } from 'node:child_process';
 import os from 'node:os';
 import readline from 'node:readline';
-import { loadEnv, saveSession, loadSession, spawnEnv } from '../lib/config.mjs';
+import { loadEnv, saveSession, loadSession, spawnEnv, resolveSmalltoakUrl, saveSmalltoakUrl } from '../lib/config.mjs';
 import { loadPin, fingerprintFromPem } from '../lib/smalltoak-pin.mjs';
 
 // Load .env / ~/.treebird-chat/.env before anything reads process.env
@@ -268,7 +268,14 @@ async function main() {
   header(3, 'Transport');
   info('Local: chat file only (Syncthing/Dropbox handles multi-machine sync).');
   info('Bridge: also start a smalltoak bridge for real-time remote access.');
-  const defaultTransport = process.env.SMALLTOAK_SERVER_URL ? 'local + smalltoak bridge' : 'local';
+  // P1: try canonical sources (env → envoak vault) before asking. The old
+  // code prompted with `getLanIp():3000` as a default, which silently wrote
+  // a wrong URL when the wizard wasn't run on the smalltoak host (the
+  // 2026-05-20 nightjar incident — m5 wrote .2:3000 when smalltoak was
+  // .1:3000 on m2). If nothing canonical exists, we prompt with no default
+  // so the user has to make an explicit choice.
+  const canonical = resolveSmalltoakUrl();
+  const defaultTransport = canonical.url ? 'local + smalltoak bridge' : 'local';
   const transport = await askChoice('Transport', ['local', 'local + smalltoak bridge'], defaultTransport);
 
   let smalltoakUrl = null;
@@ -276,13 +283,26 @@ async function main() {
   let smalltoakCertFile = null;
   let chatId = null;
   if (transport.includes('smalltoak')) {
-    // Use env values silently if available; only prompt for missing ones.
-    smalltoakUrl = process.env.SMALLTOAK_SERVER_URL || null;
-    if (!smalltoakUrl) {
-      smalltoakUrl = await askDefault('Smalltoak URL', `http://${getLanIp()}:3000`);
+    if (canonical.url) {
+      info(`Smalltoak URL: ${canonical.url} (from ${canonical.source})`);
+      smalltoakUrl = canonical.url;
     } else {
-      info(`Smalltoak URL: ${smalltoakUrl}`);
+      // Explicit prompt — no auto-default. Hints help but don't pre-fill.
+      const lanHint = getLanIp();
+      info(`Smalltoak URL: no canonical source found (no SMALLTOAK_SERVER_URL in env, no envoak vault entry).`);
+      info(`  Hints: http://localhost:3000 (same machine) · http://${lanHint}:3000 (this LAN IP — only correct if you're on the smalltoak host)`);
+      smalltoakUrl = await askDefault('Smalltoak URL', '');
+      if (!smalltoakUrl) {
+        warn('No URL provided — falling back to local transport.');
+        smalltoakUrl = null;
+      }
     }
+    // If we ended up without a URL (user skipped the prompt), don't continue
+    // collecting token/cert/chat-id — the bridge spawn check at line ~490
+    // (`if (smalltoakUrl && smalltoakToken && chatId)`) would skip anyway,
+    // and the cert branch below assumes smalltoakUrl is non-null.
+  }
+  if (transport.includes('smalltoak') && smalltoakUrl) {
     smalltoakToken = process.env.SMALLTOAK_TOKEN || null;
     if (!smalltoakToken) {
       smalltoakToken = await askDefault('Smalltoak token', '');
@@ -471,6 +491,17 @@ async function main() {
   saveSession(chatId || humanName, {
     filePath, smalltoakUrl, smalltoakToken, smalltoakCertFile, humanName,
   });
+
+  // P1: best-effort vault write so other machines (if envoak-enabled) pick
+  // up the canonical URL. Skipped silently if envoak isn't available;
+  // .env-based users keep working unchanged. Only writes when the URL came
+  // from user input — re-writing an already-canonical value is a no-op
+  // worth saving.
+  if (smalltoakUrl && canonical.url !== smalltoakUrl) {
+    const v = saveSmalltoakUrl(smalltoakUrl);
+    if (v.written) info(`Smalltoak URL → vault (treebird-chat/SMALLTOAK_SERVER_URL)`);
+    else info(`Smalltoak URL → vault skipped: ${v.reason}`);
+  }
 
   // Start smalltoak bridge if requested
   if (smalltoakUrl && smalltoakToken && chatId) {

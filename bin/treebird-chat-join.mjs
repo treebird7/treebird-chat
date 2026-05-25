@@ -11,7 +11,7 @@ import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { dirname, join, resolve as pathResolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadEnv, resolvePublicUrl, resolveMirrorFile, spawnEnv } from '../lib/config.mjs';
+import { loadEnv, resolvePublicUrl, resolveMirrorFile, resolveSmalltoakUrl, spawnEnv } from '../lib/config.mjs';
 import { supervise } from '../lib/corrwait-supervisor.mjs';
 import { verifyAgentIdentity } from '../lib/identity.mjs';
 import { setAllowed } from '../lib/access.mjs';
@@ -48,10 +48,14 @@ try { identity = verifyAgentIdentity(asArg); }
 catch (e) { process.stderr.write(`Identity check failed: ${e.message}\n`); process.exit(1); }
 const { agent } = identity;
 
-if (!smalltoakUrl) smalltoakUrl = process.env.SMALLTOAK_URL || process.env.SMALLTOAK_SERVER_URL;
+// P1: env → envoak vault → null. SMALLTOAK_URL is a historical alias for
+// SMALLTOAK_SERVER_URL; honour it but resolveSmalltoakUrl is the canonical
+// path that also probes the vault.
+if (!smalltoakUrl) smalltoakUrl = process.env.SMALLTOAK_URL || resolveSmalltoakUrl().url;
 if (!smalltoakUrl) {
   process.stderr.write(
-    'No smalltoak URL. Pass --smalltoak-url or set SMALLTOAK_URL in ~/.treebird-chat/.env\n'
+    'No smalltoak URL. Pass --smalltoak-url, set SMALLTOAK_SERVER_URL in ~/.treebird-chat/.env,\n' +
+    'or (with envoak) `envoak vault set treebird-chat SMALLTOAK_SERVER_URL <url>`.\n'
   );
   process.exit(1);
 }

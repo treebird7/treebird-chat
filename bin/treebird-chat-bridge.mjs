@@ -9,17 +9,20 @@ import { createMarkdownArchive } from '../lib/markdown-archive.mjs';
 import { AuthError, createSmalltoakTransport } from '../lib/smalltoak-transport.mjs';
 import { loadPin } from '../lib/smalltoak-pin.mjs';
 import { formatBridgeError } from '../lib/bridge-errors.mjs';
-import { loadEnv } from '../lib/config.mjs';
+import { loadEnv, resolveSmalltoakUrl } from '../lib/config.mjs';
 
 loadEnv();
 
 const EXIT = { OK: 0, ERROR: 1, REVOKED: 3 };
 
 function parseArgs(argv) {
+  // P1: env → envoak vault → null. resolveSmalltoakUrl runs at parse-time
+  // (after loadEnv()), so .env values are seen here too.
+  const { url: defaultUrl } = resolveSmalltoakUrl();
   const args = {
     chatId: null,
     file: null,
-    smalltoakUrl: process.env.SMALLTOAK_SERVER_URL || null,
+    smalltoakUrl: defaultUrl,
     // --cert-file beats SMALLTOAK_CERT_FILE beats SMALLTOAK_CERT (server-side
     // env var; tolerated here so a single .env covers both server + client).
     certFile: process.env.SMALLTOAK_CERT_FILE || process.env.SMALLTOAK_CERT || null,
