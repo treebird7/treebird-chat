@@ -2,11 +2,154 @@
 
 ## Unreleased
 
+## 0.3.0 — 2026-05-25
+
+The "issue #6" release. Twelve PRs landed in a single arc to close out
+*"Stupid-easy + stable remote chat bridge"* — single-command join,
+auto-bridge, corrwait keepalive, single source of truth for URL — plus
+a security/hardening sweep on the way through. Tests grew from 63 to
+159 across the wave.
+
+### Highlights
+
+- **Issue #6 fully shipped** — P1 (URL via `.env` → envoak vault → null) ·
+  P2 (`join` honours `sessions.json` filePath, no more `/tmp` orphans) ·
+  P2.1 (`/sub` auto-stage + auto-bridge with deterministic chat-ids) ·
+  P3 (unified corrwait supervisor + `treebird-chat-status` liveness CLI) ·
+  P3.1 (heartbeat hook for envoak hive integration — optional) ·
+  P4 (structured bridge errors with URL + actionable hint catalog).
+- **Smalltoak TLS + cert pinning** — Option A from the pinning spec, fail-closed
+  on `https://` without a pin, empirical token-not-leaked-on-mismatch test.
+- **Wikilink path-traversal containment** — `[[..]]`, `[[mem:..]]`, sub topic
+  sanitisation all guarded; 14-test regression coverage.
+- **Atomic sidecar writes + stale-lock recovery** — ACL, cursor, sessions.json,
+  bridge-cursor all crash-safe via tmp+rename. Lockfile crashed-process recovery.
+- **Two hardening passes after the main wave** — rubber-duck review caught 6
+  small fixes (path normalisation, owner default, perm tightening, etc.);
+  `/ts-review` security pass caught 10 more, 5 landed (ACL/cursor mode 0o600,
+  spawn-error handler, length caps on topic/chatId/lines).
+
+### Added
+
+- **`treebird-chat-status` CLI** — single-command bridge liveness check, lists
+  registered chats + orphan bridges (lockfiles without `sessions.json` entry),
+  reports state via lockfile + `kill(0)` probe. Exit code reflects health.
+- **`treebird-chat-join`** added to `package.json` bin (was previously usable
+  only via direct node invocation).
+- **`/sub <topic>` auto-stages** the new sub file + its `.access.json` in git
+  (when the canopy is in a git repo). No commit, no push — the TUI must not
+  mutate git history.
+- **`/sub <topic>` auto-spawns** a smalltoak bridge for the sub. Deterministic
+  chat-id `<parent>-sub-<safe-topic>` so peer machines can derive the same id
+  from the wikilink alone. Sub bridge is detached + unref'd — outlives the
+  parent TUI.
+- **`lib/corrwait-supervisor.mjs`** — shared supervisor for the corrwait loop.
+  Panic threshold (default 10 restarts in 60s), heartbeat callback hook
+  (caller-side optional), catchup pass on startup, structured exit reasons.
+  Replaces the two parallel `while (true) { spawn corrwait }` loops that
+  used to live in `bin/treebird-chat-join.mjs` and `lib/bridge-agent-base.mjs`.
+- **`lib/bridge-errors.mjs`** — `formatBridgeError({ error, op, url, chatId })`
+  + `hintFor(error)`. Hint catalog covers `ECONNREFUSED`/`ENOTFOUND`/
+  `ETIMEDOUT`/`EHOSTUNREACH` network codes, TLS cert failures, HTTP
+  401/403/404/5xx, non-array payload, and a `fetch failed` fallback. Drills
+  through Node fetch's `cause` chain (up to 4 levels) to surface the deepest
+  code.
+- **`lib/sub-bridge.mjs`** — `spawnSubBridge` + `subChatId` helpers. Async
+  with 250ms liveness verify after spawn — fast-fail bridges (bad URL/token/
+  cert) surface clear reasons instead of leaving stale lockfiles.
+- **`lib/sub-git.mjs`** — `autoStageSub` + `isInGitRepo`. Stage-only policy.
+- **`lib/config.mjs#resolveSmalltoakUrl` + `saveSmalltoakUrl`** — env →
+  envoak vault → null resolution; vault path opt-in via `ENVOAK_AGENT_LABEL`
+  detection (vanilla users pay no subprocess cost).
+- **`lib/config.mjs#resolveMirrorFile`** — `treebird-chat-join` honours the
+  registered `filePath` from `sessions.json` instead of always falling to
+  `/tmp/<chatId>.md`. `/tmp` remains the fallback for remote invites with
+  no local registration, but with a clear `[join] WARN: …` line naming the
+  chat-id and pointing at `treebird-chat-wizard`.
+- **`/sub` UX hardening** — rejects path-like arguments (`/`, `~`, `.`,
+  trailing `.md`, > 48 chars) with a hint toward `/open`. Closes a class of
+  bugs where a tired human pasted a path and got a "junk sub" named after
+  the slugified path.
+
+### Changed
+
+- **`findSessionByPath`** returns `{ chatId, ...session }` — was `session`-
+  only, fixing a latent bug at `bin/treebird-chat.mjs:261` where
+  `session?.chatId` was always undefined and the remote-invite branch was
+  effectively dead. Paths are now also normalised via `resolve()` on both
+  sides — handles relative paths, symlinks, and `/./` / `//` artifacts.
+- **`treebird-chat-bridge` startup replay guard** — pre-loads existing
+  file lines so a re-fetch from `sinceId=0` on an already-populated file
+  doesn't re-append the same content.
+- **`treebird-chat-join` corrwait loop** is now supervised — panic-protected,
+  observable restarts, optional heartbeat. Replaces the inline `while (true)`
+  loop at the prior call site.
+
 ### Security
+
+- **Wikilink path-traversal containment** (`lib/wikilink.mjs`) — `isContained`
+  guard on plain `[[../foo]]` and `[[mem:../../bar]]` paths. Sub topic
+  sanitisation already in place; ACL/cursor writes now 0o600. 14 traversal
+  tests in `test/wikilink.test.mjs` + `test/resolve-public-url.test.mjs` for
+  the related `resolvePublicUrl` guard.
+- **`resolvePublicUrl` local-host guard** — function now only surfaces
+  alternates when the URL's hostname matches a local IP. Previously, calling
+  it on a non-host URL returned the caller's own IPs as "alternates" — junk
+  pointing at the wrong server.
+- **ACL + cursor sidecars written 0o600** — `.access.json` (leaks membership)
+  and `.cursor.<agent>` (timing oracle) now match `sessions.json`'s posture.
+- **Length caps on user-derived strings** — `subTopic` 64 chars,
+  `chatId` argv 128 chars, `appendLines` per-line 4000 chars with
+  `[…truncated]` marker. Defends against resource-exhaustion via flood.
+- **URGENT_WAKE cursor persistence** — `corrwait` now advances the cursor on
+  `URGENT_WAKE` as well as `WAKE`. Previously, urgent mentions (`@@@agent`)
+  replayed on every corrwait restart because the cursor was never advanced
+  past them.
+- **`lastSmalltoakId` cursor advances only after `appendLine` succeeds** —
+  prevented permanent message drop if the append threw mid-flight.
+- **Detached spawn `child.on('error')` handler** — async spawn failures
+  (`ENOENT`/`EACCES`) no longer become unhandled exceptions that crash the
+  parent TUI.
+
+### Fixed
+
+- **The 2026-05-20 "nightjar" wrong-URL incident**, root-cause-fixed at
+  three layers: P1 closes the wizard's silent wrong-guess, P2 closes the
+  `/tmp` orphan, P4 makes the resulting `ECONNREFUSED` self-diagnosable
+  with a `hint=...` line.
+- **The "hidden corrwait respawn"** mappersan reported — turned out not to
+  be hidden, just unobservable. The two parallel supervisor implementations
+  are now unified at `lib/corrwait-supervisor.mjs:supervise`, with logged
+  restarts.
+- **Multi-interface URL selection** — `resolvePublicUrl` surfaces alternates
+  when a host has Thunderbolt + WiFi addresses, so invite blocks cover all
+  reachable subnets.
+- **Sub-bridge token argv exposure (correctness, not regression)** — the
+  prior code's comment claimed `process.env` was used to avoid `ps(1)`
+  exposure, but the token always went into the spawned child's env via
+  `spawnEnv`, not argv. Comment rewritten to match reality; the security
+  posture was always correct.
+
+### Internal
+
+- `ensureAcl` owner default is `$USER || $USERNAME || 'owner'` instead of
+  hardcoded `'treebird'`.
+- `mkdirSync` calls for `~/.treebird-chat/locks/` `chmod` 0o700 after the
+  mkdir, since `mode:` only applies on creation (defends against a
+  pre-existing dir with looser perms).
+- `appendLines` now strips embedded `\n`/`\r` from each line and coerces
+  non-strings via `String()` — defensive convergence with the agent-name
+  pattern.
+- `package.json` lockfile resynced; `treebird-chat-join` + `treebird-chat-status`
+  added to `bin`.
+
+### Earlier additions in this release (the week leading up to issue #6)
+
+#### Security (earlier)
 
 - **Smalltoak transport TLS + cert pinning** (`lib/smalltoak-transport.mjs`, `lib/smalltoak-pin.mjs`) — the bridge ↔ smalltoak transport now supports `https://` with the server cert pinned (Option A from `SPEC_smalltoak_tls_pinning.md`: carry the cert PEM, pass as TLS `ca` with hostname-check disabled — pin is the trust root). An `https://` URL with no pin is **rejected at construction** (fail-closed; no silent fallback to OS trust). Plain `http://` keeps working and emits a one-line stderr warning. New `--cert-file` flag on `treebird-chat-bridge` and `treebird-chat-join` (plus `SMALLTOAK_CERT_FILE` env). `treebird-chat-join` and `treebird-chat-wizard` persist the cert to `~/.treebird-chat/smalltoak.crt` (mode 0600) so subsequent re-joins find it automatically. The invite blocks (standalone CLI and `/invite` in the TUI) embed the cert PEM + its SHA-256 fingerprint when the host has `SMALLTOAK_CERT` set, so the invitee can verify out-of-band. Wizard threads the cert through Step 3 (Transport) — prompts only when env/persisted-default is empty, validates via `loadPin`, prints the SHA-256 fingerprint, records the path in the session registry for re-joins. 13 new tests in `test/smalltoak-transport-tls.test.mjs` cover all five spec success criteria — including the empirical "token-not-leaked-on-mismatch" check (server-side request count = 0 after a failed handshake).
 
-### Added
+#### Added
 
 - **`corrwait --catchup`** (`bin/corrwait.mjs`) — non-blocking one-shot read mode. Emits a `CATCHUP` JSON payload with all new content since the agent's cursor, advances the cursor, and exits immediately (exit 0) — even when there is no new content. Designed for agents that wake on an external signal (e.g. a hive event) and need to read session context without waiting for the next message. Respects `--on-mention` filtering. Mutually exclusive with `--write`. 6 tests added.
 
@@ -19,18 +162,18 @@
 - **`/preview <target>` command** — inlines the first 20 lines of any linked file.
 - **Sub lifecycle** (`lib/subs.mjs`, `bin/treebird-chat.mjs`, `bin/treebird-chat-join.mjs`) — `/close [summary]` in a sub TUI posts a summary back to the parent chat and marks the sub closed in `.subs.json`. Auto-summary reads the last 3 protocol lines if no text is provided. `--parent <file>` flag on both binaries wires the close path.
 
-### Fixed
+#### Fixed
 
 - **`/open` on sub-collabs opened in pager** — sub files are meant to be joined in a new TUI session, not read in `less`. `/open` now detects `type === 'sub'` and prints the `treebird-chat` join command.
 - **Malformed protocol lines invisible in TUI** — lines missing a `[HH:MM agent]` prefix are silently dropped by `printLine`. Added timestamp fixup for lines written as `[ agent]` (space-only where time should be).
 
-### Added
+#### Added
 
 - **`treebird-chat-join`** (`bin/treebird-chat-join.mjs`) — single-command remote session join. Collapses the old 6-step paste block (touch, env, bridge, allow, corrwait, reply) into `treebird-chat-join <chatId> [--as agent] [--tui]`. Reads `SMALLTOAK_TOKEN` from `~/.treebird-chat/.env` (never argv or shell history), resolves the smalltoak URL, spawns the bridge as a managed child, then runs a corrwait loop (agents) or opens the TUI (`--tui`, humans). Solves R-invite-2 — agents were misreading the multi-step paste block as in-session instructions.
 - **Single-instance bridge lock** (`treebird-chat-join`) — a stale-PID-aware lockfile per `(chatId, mirror)` refuses to start a second bridge on the same file. Prevents the two-bridges-one-file echo storm where each bridge re-pushes the other's writes.
 - **`resolvePublicUrl()` / `localIPv4s()`** (`lib/config.mjs`) — detect a loopback host in a cross-machine invite and rewrite it to the host's reachable IP (Thunderbolt `192.168.100.x` preferred, link-local `169.254.x.x` excluded), listing other routes as alternates.
 
-### Fixed
+#### Fixed
 
 - **`localhost` in cross-machine invites** — invites embedded the session's smalltoak URL verbatim; when the server ran on `localhost`, remote invitees connected to their own machine and their messages silently never reached the chat. Invites now rewrite the host to a reachable IP via `resolvePublicUrl()`.
 - **Token in invite blocks** — the invite output put a live `SMALLTOAK_TOKEN` into shell history / clipboard / chat logs. Token now lives only in `~/.treebird-chat/.env` (0600); the invite shows a one-time setup block using `printf` + `envoak vault get` command-substitution so the secret never appears literally. Fixed in both the TUI `/invite` and the standalone `treebird-chat-invite` CLI.
@@ -40,7 +183,7 @@
 - **Watcher cursor skipped continuation lines** (`lib/watcher.mjs`) — the cursor mis-handled multi-line flat messages.
 - **Smalltoak bridge echo storm** (`lib/bridge.mjs`, `lib/markdown-archive.mjs`) — the bridge's self-echo guard used a `Set` for appended-line content, which collapses duplicate content: once one identical self-line was consumed, a second went unrecognized whenever the line-number guard also missed, and the bridge re-posted its own echo in a loop. Replaced with a counting multiset (`createSelfContentLedger()`) — one credit per self-append, retired on match. `markdown-archive#appendLine` now scans from the end of the file so a stale earlier duplicate is never mistaken for the just-appended line.
 
-### Changed
+#### Changed
 
 - **`gemma-bridge` default model** — `google/gemma-4-26b-a4b` (an LM Studio HF id that triggered a 48 GB download on first run) replaced with `mlx-community/gemma-4-26b-a4b-it-4bit`, the MLX id served by `mlx_lm.server`.
 
