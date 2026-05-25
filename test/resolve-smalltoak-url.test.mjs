@@ -40,11 +40,15 @@ test('no env, no envoak: returns null/null', () => {
 });
 
 test('no env, envoak present but vault entry missing: returns null', () => {
-  // This exercises the vault-probe-failure path. Without a real envoak
-  // binary on PATH, execFileSync throws; the function swallows and falls
-  // through to null. (If envoak IS on the test runner's PATH but has no
-  // entry, same outcome — the empty/non-URL stdout filters out.)
-  const r = resolveSmalltoakUrl({ env: { ENVOAK_AGENT_LABEL: 'nonexistent-agent-for-test' } });
+  // Vault-probe-failure path. We inject a namespace/key combo guaranteed
+  // not to exist so this stays robust whether envoak is broken, missing,
+  // or healthy-but-empty. Without injection, the test would have been
+  // dependent on the real vault not happening to hold the production key.
+  const r = resolveSmalltoakUrl({
+    env: { ENVOAK_AGENT_LABEL: 'test-agent' },
+    namespace: '__test-namespace-that-does-not-exist__',
+    key: '__test-key-that-does-not-exist__',
+  });
   assert.equal(r.url, null);
   assert.equal(r.source, null);
 });

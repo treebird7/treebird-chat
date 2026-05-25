@@ -297,6 +297,12 @@ async function main() {
         smalltoakUrl = null;
       }
     }
+    // If we ended up without a URL (user skipped the prompt), don't continue
+    // collecting token/cert/chat-id — the bridge spawn check at line ~490
+    // (`if (smalltoakUrl && smalltoakToken && chatId)`) would skip anyway,
+    // and the cert branch below assumes smalltoakUrl is non-null.
+  }
+  if (transport.includes('smalltoak') && smalltoakUrl) {
     smalltoakToken = process.env.SMALLTOAK_TOKEN || null;
     if (!smalltoakToken) {
       smalltoakToken = await askDefault('Smalltoak token', '');
