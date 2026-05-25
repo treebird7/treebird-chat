@@ -358,7 +358,7 @@ rl.on('line', async (raw) => {
 
     // P2.1: spawn the sub-↔-smalltoak bridge so peer machines can join the
     // sub via `treebird-chat-join <sub-chat-id> --as <agent>` immediately.
-    const bridge = spawnSubBridge({
+    const bridge = await spawnSubBridge({
       parentFile: filePath, subFile, subTopic: topic, agent,
     });
 
