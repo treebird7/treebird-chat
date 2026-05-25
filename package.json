@@ -33,6 +33,13 @@
     "treebird-chat-wizard": "bin/treebird-chat-wizard.mjs",
     "treebird-chat-status": "bin/treebird-chat-status.mjs"
   },
+  "files": [
+    "bin/",
+    "lib/",
+    "templates/",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "test": "node --test test/*.test.mjs"
   },
