@@ -6,7 +6,7 @@
 // Default: spawns bridge in background, runs corrwait loop in foreground.
 // With --tui: spawns bridge then opens the full TUI.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { dirname, join, resolve as pathResolve } from 'node:path';
@@ -137,6 +137,9 @@ setAllowed(mirrorFile, agent, true);
 const LOCKS_DIR = join(homedir(), '.treebird-chat', 'locks');
 const lockFile = join(LOCKS_DIR, `${chatId}.pid`);
 mkdirSync(LOCKS_DIR, { recursive: true, mode: 0o700 });
+// mkdirSync's `mode` only applies on creation — re-assert for a pre-existing
+// dir with looser perms. (Rubber-duck #6.)
+try { chmodSync(LOCKS_DIR, 0o700); } catch { /* not fatal */ }
 
 function readLivePid(path) {
   try {

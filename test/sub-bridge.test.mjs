@@ -30,8 +30,8 @@ test('subChatId is deterministic across machines (same input → same id)', () =
 // running. We exercise the no-op paths instead: missing sub file, unregistered
 // parent, missing token. Each returns { spawned: false, reason: <string> }.
 
-test('spawnSubBridge returns false-reason when sub file does not exist', () => {
-  const r = spawnSubBridge({
+test('spawnSubBridge returns false-reason when sub file does not exist', async () => {
+  const r = await spawnSubBridge({
     parentFile: '/whatever',
     subFile: '/no/such/file.md',
     subTopic: 'topic',
@@ -41,7 +41,7 @@ test('spawnSubBridge returns false-reason when sub file does not exist', () => {
   assert.match(r.reason, /does not exist/);
 });
 
-test('spawnSubBridge returns false-reason when parent is unregistered', () => {
+test('spawnSubBridge returns false-reason when parent is unregistered', async () => {
   // Make a sub file but never register the parent in sessions.json.
   const dir = mkdtempSync(join(tmpdir(), 'sub-bridge-test-'));
   try {
@@ -51,7 +51,7 @@ test('spawnSubBridge returns false-reason when parent is unregistered', () => {
     const parent = join(dir, 'unregistered-parent.md');
     writeFileSync(parent, '');
 
-    const r = spawnSubBridge({
+    const r = await spawnSubBridge({
       parentFile: parent, subFile: sub, subTopic: 'topic', agent: 'tester',
     });
     assert.equal(r.spawned, false);
