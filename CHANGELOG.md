@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.3.1 — 2026-05-25
+
+### Docs
+
+- **README cleanup** — replaced personal/agent names (treebird, yosef, watsan, mappersan, etc.) with generic placeholders (`human`, `agent1`, `agent2`). Example session name `spidersan-review` → `code-review`. Hardcoded envoak key path replaced with a generic `ENVOAK_AGENT_LABEL` export hint. Preserved as project-meaningful: `treebird-chat`, `treebird7`, `TREEBIRD_COLLAB_DIR`, `gemma`/`gemma-bridge`.
+
+No code changes — patch release to ship the cleaner README to npm.
+
 ## 0.3.0 — 2026-05-25
 
 The "issue #6" release. Twelve PRs landed in a single arc to close out
