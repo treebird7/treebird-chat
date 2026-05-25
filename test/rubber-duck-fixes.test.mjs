@@ -134,6 +134,38 @@ test('#5 ensureAcl falls back to "owner" when $USER and $USERNAME are unset', ()
   }
 });
 
+// ── /ts-review permissions_hygiene: ACL + cursor written 0o600 ───────────────
+
+test('/ts-review#1 ensureAcl writes the .access.json with mode 0o600', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rd-acl-mode-'));
+  try {
+    const chat = join(dir, 'chat.md');
+    writeFileSync(chat, '');
+    ensureAcl(chat, 'tester');
+    const stat = statSync(`${chat}.access.json`);
+    // Mode lower 9 bits = perm bits. 0o600 means owner-rw, no group/world.
+    assert.equal(stat.mode & 0o777, 0o600,
+      `ACL mode should be 0o600; got 0o${(stat.mode & 0o777).toString(8)}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('/ts-review#1 cursor file is written 0o600', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rd-cursor-mode-'));
+  try {
+    const chat = join(dir, 'chat.md');
+    writeFileSync(chat, '');
+    const { writeCursor, cursorPath } = await import('../lib/access.mjs');
+    writeCursor(chat, 'tester', 42);
+    const stat = statSync(cursorPath(chat, 'tester'));
+    assert.equal(stat.mode & 0o777, 0o600,
+      `cursor mode should be 0o600; got 0o${(stat.mode & 0o777).toString(8)}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('#5 ensureAcl explicit owner arg still wins over $USER', () => {
   const dir = mkdtempSync(join(tmpdir(), 'rd-acl-explicit-'));
   try {
