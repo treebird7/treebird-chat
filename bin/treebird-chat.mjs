@@ -335,7 +335,9 @@ rl.on('line', async (raw) => {
     for (const a of extraAgents) {
       if (isValidAgentName(a)) acl.agents[a] = { allowed: true, joined_at: new Date().toISOString() };
     }
-    writeFileSync(`${subFile}.access.json`, JSON.stringify(acl, null, 2) + '\n');
+    // 0o600 on the ACL — leaks who has access to the sub. Matches the
+    // access.mjs writeAcl posture. (/ts-review permissions_hygiene #2.)
+    writeFileSync(`${subFile}.access.json`, JSON.stringify(acl, null, 2) + '\n', { mode: 0o600 });
 
     // Register in parent .subs.json
     addSub(filePath, {
