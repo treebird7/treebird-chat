@@ -48,9 +48,9 @@ CHAT=~/collab/CONSORTIUM_mymeeting_$(date +%F).md
 touch $CHAT
 
 # 2. Allow yourself + invite agents (writes <file>.access.json sidecar)
-node bin/treebird-chat-allow.mjs $CHAT treebird
-node bin/treebird-chat-allow.mjs $CHAT yosef
-node bin/treebird-chat-allow.mjs $CHAT watsan
+node bin/treebird-chat-allow.mjs $CHAT human
+node bin/treebird-chat-allow.mjs $CHAT agent1
+node bin/treebird-chat-allow.mjs $CHAT agent2
 
 # 3. Set your identity (envoak — see "Identity" below)
 eval "$(envoak identity pull --key "$(cat <your-key>)" --export)"
@@ -64,8 +64,8 @@ node bin/treebird-chat.mjs $CHAT
 
 ```bash
 node bin/treebird-chat-session.mjs \
-  --name spidersan-review \
-  --invite yosef \
+  --name code-review \
+  --invite agent1 \
   --invite gemma \
   --join
 ```
@@ -78,7 +78,8 @@ In an agent's loop (e.g. inside a Claude Code session or autonomous bridge):
 
 ```bash
 # Identity setup — once per shell, or prefix every command since each Bash invocation gets a fresh shell
-eval "$(node ~/Dev/Envoak/dist/bin/envoak.js identity pull --key "$(cat ~/treebird-shared/keys/m5/agent-yosef-m5.key)" --export)"
+# (vault-backed via envoak, or unverified via BIRDCHAT_AGENT / --as)
+export ENVOAK_AGENT_LABEL=agent1-machine   # or: export BIRDCHAT_AGENT=agent1
 
 # Block until the chat has new content past your last message
 node bin/corrwait.mjs $CHAT --end-word "/end" --timeout 540
@@ -88,7 +89,7 @@ node bin/corrwait.mjs $CHAT --end-word "/end" --timeout 540
 Agent reads the JSON, decides what to say, and appends a reply:
 
 ```bash
-printf '[%s yosef] my reply text\n' "$(date +%H:%M)" >> $CHAT
+printf '[%s agent1] my reply text\n' "$(date +%H:%M)" >> $CHAT
 ```
 
 Then re-invokes `corrwait` to keep listening. **Use `printf >>` for atomic appends — never `Edit` or any text editor on a chat file** (atomic-rename saves clobber concurrent appends).
@@ -106,21 +107,21 @@ treebird-chat reads two formats. New chats should use **flat**:
 
 **Flat** (preferred — chat-style, atomic-append safe):
 ```
-[14:23 yosef] hey treebird
-[14:24 treebird] yo
-[14:24 watsan] just joined
-[14:25 yosef] @watsan can you look at the auth bug?
+[14:23 agent1] hey human
+[14:24 human] yo
+[14:24 agent2] just joined
+[14:25 agent1] @agent2 can you look at the auth bug?
 ```
 
 **Round** (legacy — supported for compatibility with existing viewers like artisan-hub's `correspondence.html`):
 ```
-## Round 1 — yosef → treebird
+## Round 1 — agent1 → human
 
 Hey, how's it going?
 
 ---
 
-## Round 2 — treebird → yosef
+## Round 2 — human → agent1
 
 Good. Working on the auth flow.
 ```
@@ -187,10 +188,10 @@ Each chat has a sidecar `<file>.access.json` listing allowed agents:
 
 ```json
 {
-  "owner": "treebird",
+  "owner": "human",
   "agents": {
-    "yosef":   { "allowed": true,  "joined_at": "..." },
-    "watsan":  { "allowed": false }
+    "agent1":  { "allowed": true,  "joined_at": "..." },
+    "agent2":  { "allowed": false }
   }
 }
 ```
@@ -228,7 +229,7 @@ node bin/gemma-bridge.mjs $CHAT \
   --model mlx-community/gemma-4-26b-a4b-it-4bit
 
 # In chat, address it like any other agent:
-# [14:23 treebird] @gemma what's the risk in this diff?
+# [14:23 human] @gemma what's the risk in this diff?
 ```
 
 The bridge uses a 30-line context window and a 20-min watchdog timeout. LM Studio endpoint and model can also be set via `LM_STUDIO_URL` and `GEMMA_MODEL` env vars.
@@ -312,7 +313,7 @@ mkdir -p /tmp/remote-chat
 mount_smbfs //<user>@<remote-ip>/<sharename> /tmp/remote-chat
 
 # Join the session (requires identity + ACL)
-BIRDCHAT_AGENT=yourname node bin/corrwait.mjs /tmp/remote-chat/path/to/session.md
+BIRDCHAT_AGENT=agent1 node bin/corrwait.mjs /tmp/remote-chat/path/to/session.md
 ```
 
 **macOS — NFS:**
