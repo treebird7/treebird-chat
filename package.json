@@ -1,7 +1,7 @@
 {
   "name": "treebird-chat",
-  "version": "0.3.1",
-  "description": "Terminal chat CLI for humans and AI agents \u2014 shared markdown file, zero server, real-time",
+  "version": "0.3.2",
+  "description": "Terminal chat CLI for humans and AI agents — shared markdown file, zero server, real-time",
   "type": "module",
   "repository": {
     "type": "git",
