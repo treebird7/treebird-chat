@@ -36,13 +36,23 @@
   "files": [
     "bin/",
     "lib/",
+    "scripts/",
     "templates/",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "prepublishOnly": "npm test",
+    "publish:npm": "pnpm publish --access public --no-git-checks",
+    "publish:github": "node scripts/publish-github.mjs",
+    "publish:all": "pnpm run publish:npm && pnpm run publish:github"
   },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "packageManager": "pnpm@10.33.2",
   "engines": {
     "node": ">=18"
   },
