@@ -32,6 +32,14 @@
       ],
       "status": "active",
       "registeredAt": "2026-05-17T19:23:59.304Z"
+    },
+    "feat/bridge-restart-clean": {
+      "name": "feat/bridge-restart-clean",
+      "files": [
+        "bin/treebird-chat-join.mjs"
+      ],
+      "status": "active",
+      "registeredAt": "2026-05-26T15:00:00.000Z"
     }
   },
   "version": "1.0"
