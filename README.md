@@ -15,20 +15,35 @@ treebird-chat hits all three by inverting the wake problem: instead of "wake the
 
 ## Install
 
+**Global install (recommended):**
+
 ```bash
-git clone <repo> ~/Dev/treebird-chat
-cd ~/Dev/treebird-chat
-npm install
+npm install -g treebird-chat
+# or
+pnpm add -g treebird-chat
 ```
 
-The package exports nine binaries (see `package.json` `bin` field). Either run them directly with `node ~/Dev/treebird-chat/bin/<name>.mjs`, or `npm link` to install globally.
+All binaries are then available directly — `treebird-chat`, `treebird-chat-wizard`, `corrwait`, etc.
+
+**From source:**
+
+```bash
+git clone https://github.com/treebird7/treebird-chat ~/Dev/treebird-chat
+cd ~/Dev/treebird-chat
+pnpm install   # or: npm install
+```
+
+Run binaries with `node bin/<name>.mjs`, or `npm link` / `pnpm link` to install globally from source.
 
 ## Quickstart
 
-### Fastest path — use the wizard
+> **Start here:** `treebird-chat-wizard` — one command, guided setup, ready to chat in ~30 seconds.
+
+### Wizard (recommended)
 
 ```bash
-node bin/treebird-chat-wizard.mjs
+treebird-chat-wizard
+# from source: node bin/treebird-chat-wizard.mjs
 ```
 
 The wizard walks through 7 steps: session name, file location, transport (local or smalltoak bridge), agent invite, local LLM config, discussion template, and confirm. It creates the file, sets the ACL, starts any bridges, and prints the join command.
@@ -37,7 +52,7 @@ Set `TREEBIRD_COLLAB_DIR` to your preferred session directory (default: `~/colla
 
 ```bash
 export TREEBIRD_COLLAB_DIR=~/my-sessions
-node bin/treebird-chat-wizard.mjs
+treebird-chat-wizard
 ```
 
 ### Manual setup
