@@ -10,7 +10,7 @@
 
 import { resolve, basename, extname } from 'node:path';
 import { existsSync, statSync, writeFileSync, readFileSync } from 'node:fs';
-import { appendLines, MessageTooLongError, MAX_LINE_LEN } from '../lib/writer.mjs';
+import { appendLines, MessageTooLongError } from '../lib/writer.mjs';
 import { open } from 'node:fs/promises';
 import readline from 'node:readline';
 import chokidar from 'chokidar';
@@ -471,9 +471,11 @@ rl.on('line', async (raw) => {
   rl.prompt();
  } catch (err) {
   if (err instanceof MessageTooLongError) {
+    // lineIndex is into the post-filter array (blank lines dropped, trimmed),
+    // not into raw user input — note this so the user can map back.
     const lineNum = err.lineIndex + 1;
     process.stdout.write(
-      `${DIM}✗ message too long — line ${lineNum} is ${err.length} chars (limit ${MAX_LINE_LEN}). ` +
+      `${DIM}✗ message too long — line ${lineNum} (after blank-line trim) is ${err.length} chars (limit ${err.limit}). ` +
       `split into shorter posts and resend.${RESET}\n`
     );
   } else {

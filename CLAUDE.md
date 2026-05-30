@@ -193,6 +193,6 @@ Sub files are full chat files — they have their own ACL and corrwait loop. Age
 ## Known limitations / TODO
 
 - No multi-machine bridge for the artisan-hub viewer (it watches `~/Dev/treebird-internal/collab/`, not `~/treebird-shared/collab/treebird-chat/` — symlinks break chokidar's change events on the viewer side)
-- Concurrent-write collisions on long messages (>4096 bytes can interleave) — practically rare but real
+- Concurrent-write collisions on long messages (>4096 bytes can interleave) — practically rare but real. `lib/writer.mjs` enforces a per-line cap of 4000 chars: `appendLines` throws `MessageTooLongError` rather than silently truncating; callers (TUI, agents) surface a "split into shorter posts" message to the author.
 - No mentions / addressing — every message wakes every listening agent (planned: SPEC_notifications.md in the private birdchat repo)
 - Sub-collabs are flat siblings (one level deep) — no recursive nesting

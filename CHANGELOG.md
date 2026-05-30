@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Changed (breaking for direct `appendLines` callers)
+
+- **`lib/writer.mjs` no longer silently truncates lines over 4000 chars** (#23).
+  Was: line collapsed to one row + `" […truncated]"` marker appended.
+  Now: throws `MessageTooLongError` (named, with `lineIndex` / `length` / `limit`
+  fields) and leaves the file untouched. Callers must handle the error and
+  surface a clear "split into shorter posts" message to the author.
+  - TUI (`bin/treebird-chat.mjs`) catches and shows: `✗ message too long — line N (after blank-line trim) is M chars (limit 4000). split into shorter posts and resend.`
+  - Bridge inbound (`lib/bridge.mjs`) substitutes a visible `[time system] ⚠️ inbound message from <agent> at <time> exceeded line limit (M chars > 4000) — not appended` note when a peer ships an oversize line. Author field is capped (≤80) to keep the substitute itself under the limit.
+
+  Migration for downstream `appendLines` users: wrap calls in try/catch and inspect for `err.code === 'MESSAGE_TOO_LONG'`. The `lib/writer.mjs` exports `MAX_LINE_LEN` and `MessageTooLongError` for callers that want to pre-check.
+
 ## 0.3.3 — 2026-05-30
 
 ### Added

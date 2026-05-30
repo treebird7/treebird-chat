@@ -165,4 +165,57 @@ test('bridge replaces inbound too-long peer message with a visible system note',
   assert.match(written, /inbound message from peer/, 'note should name source agent');
   assert.match(written, /exceeded line limit/, 'note should explain why');
   assert.match(written, new RegExp(`${rawText.length} chars > ${MAX_LINE_LEN}`), 'note should include byte counts');
+
+  // Cursor must advance — otherwise the next poll re-fetches the same oversize
+  // message and stays stuck. Direct check on the in-memory cursor.
+  const cursorState = await cursorStore.load('test-chat');
+  assert.equal(cursorState.lastSmalltoakId, 1, 'lastSmalltoakId must advance past the substituted message');
+});
+
+test('bridge substitution caps an unbounded peer-controlled author to keep the note within MAX_LINE_LEN', async () => {
+  const longAuthor = 'a'.repeat(5000);  // peer-controlled, would blow past MAX_LINE_LEN
+  const oversizeText = 'b'.repeat(MAX_LINE_LEN + 100);
+  const rawText = `[12:00 ${longAuthor}] ${oversizeText}`;
+  let readCount = 0;
+
+  const transport = {
+    sender: 'me',
+    async read({ since }) {
+      readCount++;
+      if (since > 0) return [];
+      return [{
+        id: 1, sender: 'peer-bridge', rawText,
+        agent: longAuthor, time: '12:00', text: oversizeText,
+      }];
+    },
+    async post() { throw new Error('post should not be called'); },
+  };
+
+  const archive = new MemoryArchive();
+  const cursorStore = new MemoryCursor();
+  const controller = new AbortController();
+
+  const bridgePromise = runBridge({
+    chatId: 'test-chat',
+    file: '/tmp/ignored-by-memory-archive.md',
+    transport,
+    archive,
+    cursorStore,
+    signal: controller.signal,
+  }).catch(() => { /* aborted */ });
+
+  await waitFor(() => archive.lines.length >= 1);
+  controller.abort();
+  await bridgePromise;
+
+  assert.equal(archive.lines.length, 1);
+  const written = archive.lines[0];
+  // The substituted note itself must fit — otherwise the PIPE_BUF defense fails.
+  assert.ok(written.length <= MAX_LINE_LEN,
+    `substituted note must fit in MAX_LINE_LEN, got ${written.length}`);
+  assert.match(written, /^\[12:00 system\]/, 'should still be a system note');
+  // Author was capped — full 5000-char author should not appear, but a truncated
+  // prefix should (we cap at 80).
+  assert.ok(!written.includes('a'.repeat(200)), 'long author must be truncated');
+  assert.match(written, /^\[12:00 system\] ⚠️ inbound message from a{1,80}/, 'capped author prefix is included');
 });
