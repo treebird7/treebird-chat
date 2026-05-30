@@ -191,22 +191,26 @@ test('/ts-review subChatId handles non-string topic without throwing', async () 
   assert.equal(subChatId('parent', null), 'parent-sub-null');
 });
 
-test('/ts-review appendLines truncates lines over 4000 chars with a marker', async () => {
+test('/ts-review appendLines THROWS MessageTooLongError on lines over 4000 chars (was: silent truncation)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'rd-cap-line-'));
   try {
-    const { appendLines } = await import('../lib/writer.mjs');
+    const { appendLines, MessageTooLongError, MAX_LINE_LEN } = await import('../lib/writer.mjs');
     const f = join(dir, 'chat.md');
     writeFileSync(f, '');
     const huge = 'x'.repeat(10_000);
-    await appendLines(f, 'tester', [huge]);
-    const lines = readFileSync(f, 'utf8').split('\n').filter(Boolean);
-    assert.equal(lines.length, 1);
-    // Strip the [HH:MM tester] prefix to inspect the payload.
-    const m = lines[0].match(/^\[\d{2}:\d{2} tester\] (.+)$/);
-    assert.ok(m, 'line should have the standard prefix');
-    const payload = m[1];
-    assert.ok(payload.length <= 4000, `payload should be capped, got ${payload.length}`);
-    assert.match(payload, /\[…truncated\]$/);
+    await assert.rejects(
+      () => appendLines(f, 'tester', [huge]),
+      (err) => {
+        assert.ok(err instanceof MessageTooLongError, 'should be MessageTooLongError');
+        assert.equal(err.code, 'MESSAGE_TOO_LONG');
+        assert.equal(err.lineIndex, 0);
+        assert.equal(err.length, 10_000);
+        assert.equal(err.limit, MAX_LINE_LEN);
+        return true;
+      }
+    );
+    // File should be untouched — no partial/truncated write.
+    assert.equal(readFileSync(f, 'utf8'), '');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
