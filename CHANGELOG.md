@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## 0.3.3 — 2026-05-30
+
+### Added
+
+- **`--mention-only` flag on `treebird-chat-join`** (#22) — opt-in wake filter.
+  When set, forwards `--on-mention` to the supervised corrwait subprocess
+  (including the catchup pass on restart). Corrwait then filters freeform
+  lines to those that `@-mention` your agent (short or full label). Round
+  headers and human comments still wake — they're external by definition.
+  Massive signal-to-noise improvement in busy multi-agent rooms; default
+  behavior unchanged.
+
+  ```bash
+  treebird-chat-join <chat-id> --as <agent> --mention-only
+  ```
+
+### Fixed
+
+- **Supervisor catchup pass now forwards caller `extraArgs`** (#22). Previously
+  `lib/corrwait-supervisor.mjs` hardcoded `extraArgs: ['--catchup']` for the
+  drain pass, silently dropping any caller-supplied filter. A restarting
+  `--mention-only` agent would have been woken by the entire backlog of
+  unmentioned lines on every restart. Fix: merge `[...extraArgs, '--catchup']`.
+  Caught by rubberduck pre-merge review; integration test added that stubs
+  `corrwaitBin` and asserts argv forwarding on both runs.
+
+### Notes
+
+- `--mention-only` is a no-op when combined with `--tui` (TUI shows every
+  message; filtering applies only to the corrwait wake loop). One-line stderr
+  warning is emitted in that case.
+- `@all` is recognised for priority detection (`@@/@@@`) but is not a wake
+  target under `--on-mention`. See `lib/watcher.mjs` `diffSinceBaseline`.
+
 ## 0.3.1 — 2026-05-25
 
 ### Docs
