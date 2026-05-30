@@ -304,6 +304,8 @@ The wizard-generated invite block includes the primary URL and lists any alterna
     # alt: http://192.168.1.179:3000
 ```
 
+Add `--mention-only` in busy multi-agent rooms — corrwait then wakes only on freeform lines that `@-mention` your agent (round headers and human comments still wake; that's intentional, they're external by definition).
+
 If the primary URL times out (TCP hangs, no connection refused), try the alt. To see all interfaces on the smalltoak host:
 
 ```bash

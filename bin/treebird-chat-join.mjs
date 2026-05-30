@@ -1,10 +1,16 @@
 #!/usr/bin/env node
-// treebird-chat-join <chatId> [--smalltoak-url URL] [--as agent] [--tui]
+// treebird-chat-join <chatId> [--smalltoak-url URL] [--as agent] [--tui] [--mention-only]
 //
 // Single-command join for a remote treebird-chat session.
 // Reads SMALLTOAK_TOKEN from ~/.treebird-chat/.env automatically.
 // Default: spawns bridge in background, runs corrwait loop in foreground.
 // With --tui: spawns bridge then opens the full TUI.
+// With --mention-only: corrwait filters freeform lines to those that @-mention
+// this agent (short or full label). Round headers and human comments still wake
+// (they're external by definition). @all is recognised for *priority* (@@/@@@)
+// but not as a wake target — see lib/watcher.mjs diffSinceBaseline. Useful for
+// multi-agent rooms where signal-to-noise matters. Forwards --on-mention to the
+// supervised corrwait subprocess (including the catchup pass on restart).
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -22,7 +28,7 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 
 loadEnv();
 
-let chatId = null, asArg = null, smalltoakUrl = null, tui = false, parentFile = null, certFileArg = null;
+let chatId = null, asArg = null, smalltoakUrl = null, tui = false, parentFile = null, certFileArg = null, mentionOnly = false;
 {
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i++) {
@@ -31,11 +37,12 @@ let chatId = null, asArg = null, smalltoakUrl = null, tui = false, parentFile = 
     else if (argv[i] === '--parent') parentFile = argv[++i];
     else if (argv[i] === '--cert-file') certFileArg = argv[++i];
     else if (argv[i] === '--tui') tui = true;
+    else if (argv[i] === '--mention-only') mentionOnly = true;
     else if (!argv[i].startsWith('--') && !chatId) chatId = argv[i];
   }
 }
 if (!chatId) {
-  process.stderr.write('usage: treebird-chat-join <chatId> [--smalltoak-url URL] [--as agent] [--cert-file PATH] [--tui]\n');
+  process.stderr.write('usage: treebird-chat-join <chatId> [--smalltoak-url URL] [--as agent] [--cert-file PATH] [--tui] [--mention-only]\n');
   process.exit(1);
 }
 // Char allowlist + length cap. 128 fits the worst sub-chat-id shape
@@ -271,6 +278,9 @@ process.on('SIGTERM', () => cleanup('terminated'));
 if (!livePid) await new Promise(r => setTimeout(r, 900));
 
 if (tui) {
+  if (mentionOnly) {
+    process.stderr.write('[join] --mention-only has no effect with --tui (TUI shows every message; filtering applies only to the corrwait loop)\n');
+  }
   process.stderr.write('[join] opening TUI ...\n');
   const chatArgs = [join(__dir, 'treebird-chat.mjs'), mirrorFile, '--as', agent];
   if (parentFile) chatArgs.push('--parent', parentFile);
@@ -282,11 +292,13 @@ if (tui) {
   process.stderr.write(`[join] corrwait loop running — Ctrl-C to leave\n\n`);
   const corrwait = join(__dir, 'corrwait.mjs');
   // P3: supervised loop. Same shape, observable restarts + panic threshold.
+  const extraArgs = ['--end-word', '/end'];
+  if (mentionOnly) extraArgs.push('--on-mention');
   const result = await supervise({
     corrwaitBin: corrwait,
     filePath: mirrorFile,
     agent,
-    extraArgs: ['--end-word', '/end'],
+    extraArgs,
     onWake: (payload) => {
       process.stdout.write(`WAKE ${new Date().toLocaleTimeString()}${payload.fromCatchup ? ' (catchup)' : ''}\n`);
       for (const line of payload.wakeLines || []) process.stdout.write(`  ${line}\n`);
