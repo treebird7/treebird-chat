@@ -5,9 +5,12 @@
 // Reads SMALLTOAK_TOKEN from ~/.treebird-chat/.env automatically.
 // Default: spawns bridge in background, runs corrwait loop in foreground.
 // With --tui: spawns bridge then opens the full TUI.
-// With --mention-only: corrwait wakes only on @-mentions of this agent (or @all),
-// not on every freeform line — useful for multi-agent rooms where signal-to-noise
-// matters. Forwards --on-mention to the supervised corrwait subprocess.
+// With --mention-only: corrwait filters freeform lines to those that @-mention
+// this agent (short or full label). Round headers and human comments still wake
+// (they're external by definition). @all is recognised for *priority* (@@/@@@)
+// but not as a wake target — see lib/watcher.mjs diffSinceBaseline. Useful for
+// multi-agent rooms where signal-to-noise matters. Forwards --on-mention to the
+// supervised corrwait subprocess (including the catchup pass on restart).
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -275,6 +278,9 @@ process.on('SIGTERM', () => cleanup('terminated'));
 if (!livePid) await new Promise(r => setTimeout(r, 900));
 
 if (tui) {
+  if (mentionOnly) {
+    process.stderr.write('[join] --mention-only has no effect with --tui (TUI shows every message; filtering applies only to the corrwait loop)\n');
+  }
   process.stderr.write('[join] opening TUI ...\n');
   const chatArgs = [join(__dir, 'treebird-chat.mjs'), mirrorFile, '--as', agent];
   if (parentFile) chatArgs.push('--parent', parentFile);
