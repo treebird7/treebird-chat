@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.4 — 2026-05-30
+
 ### Changed (breaking for direct `appendLines` callers)
 
 - **`lib/writer.mjs` no longer silently truncates lines over 4000 chars** (#23).
