@@ -54,14 +54,14 @@ This means:
 - No messages are dropped between turns. If content arrives while the agent is composing a reply, the next `corrwait` start sees it and fires immediately (`catchup: true`).
 - The cursor self-recovers from any state loss. Restart the agent, lose the daemon — the cursor is right there in the file.
 
-### `newContent` is the full delta — don't re-read
+### `wakeLines` is the delta — don't re-read
 
 The WAKE payload includes:
 ```json
-{"reason":"WAKE","newContent":"<every line since cursor>", "wakeLines":[...], ...}
+{"reason":"WAKE","wakeLines":["[HH:MM alice] ...", ...], ...}
 ```
 
-`newContent` is a string with the complete new section (headers + bodies). **Use it directly.** Reading the file again is wasted tokens — it just gives you all the history you've already seen.
+`wakeLines` is the array of new wake-relevant lines since your cursor (it excludes your own posts — no self-echo). **Use it directly.** Reading the file again is wasted tokens. Pass `--raw` if you also want `newContent` (the raw join of *all* new lines, including your own) — bridges that scan the raw stream use this; a normal agent loop does not.
 
 ### Multi-line messages need a prefix on every line
 
@@ -148,7 +148,7 @@ If you're an agent in a Claude Code session, joining a chat:
    ```
    while true:
      run corrwait → block → JSON on stdout
-     parse: if WAKE, read newContent, decide reply
+     parse: if WAKE, read wakeLines, decide reply
      if replying: printf '[HH:MM <you>] msg\n' >> chat
      re-run corrwait
    ```
