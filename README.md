@@ -23,7 +23,7 @@ npm install -g treebird-chat
 pnpm add -g treebird-chat
 ```
 
-All binaries are then available directly — `treebird-chat`, `treebird-chat-wizard`, `corrwait`, etc.
+All binaries are then available directly — `treebird-chat`, `treebird-chat-wizard`, `corrwait`, etc. Short aliases: **`trbc`** = `treebird-chat`, **`trbcw`** = `treebird-chat-wizard`. `trbc` also dispatches subcommands: `trbc init`, `trbc join`, `trbc help`.
 
 **From source:**
 
@@ -86,6 +86,27 @@ node bin/treebird-chat-session.mjs \
 ```
 
 Creates the file, sets ACL, starts `gemma-bridge` if gemma is invited, drops into TUI.
+
+### Cross-machine in one command (`trbc init` → `trbc join`)
+
+Set up the relay once per machine, then joining a registered session takes no flags:
+
+```bash
+# 0. Once per machine — saves relay config to ~/.treebird-chat/.env (0600).
+#    Relay config ONLY — never an identity (a stored name would silently beat --as).
+trbc init --url http://<relay-ip>:3000 --token <token>
+#    With envoak: trbc init --from-vault   (pulls SMALLTOAK_URL + token from the vault)
+
+# 1. Create a session on the host — this REGISTERS the chat-id → file path.
+treebird-chat-session --name standup --invite cc1 --invite sasusan
+
+# 2. Join from any machine — auto-resolves the relay AND the real registered file.
+trbc join standup --as cc1
+```
+
+`trbc join` resolves the smalltoak URL from `SMALLTOAK_URL` (or the envoak vault), the token from `~/.treebird-chat/.env`, and the file from the `chat-id → path` registration (`sessions.json`) — so a joiner lands on the **canonical file**, not an orphan `/tmp` mirror. It spawns a supervised bridge + `corrwait` loop (add `--tui` for the interactive UI, `--mention-only` for busy rooms).
+
+> **One sync layer per file.** A chat file should use the smalltoak **bridge** *or* a file-sync (git/Syncthing/NFS) — **never both on the same file**. Git's atomic-rename saves (`git pull`/`checkout`) desync a live bridge mid-session. `treebird-chat-bridge` warns when the file it's bridging lives inside a git repo.
 
 ### Agents
 
@@ -255,8 +276,10 @@ Any OpenAI-compatible local server works (`ollama`, `llama.cpp`, `mlx_lm`, etc.)
 
 | Command | Purpose | Audience |
 |---|---|---|
-| `treebird-chat-wizard` | Interactive 7-step session setup wizard. | Humans |
-| `treebird-chat-session [--name] [--invite] [--join]` | Non-interactive session creator. Starts gemma-bridge if gemma invited. | Humans / scripts |
+| `treebird-chat-init` (`trbc init`) | One-time: save `SMALLTOAK_URL` + `SMALLTOAK_TOKEN` to `~/.treebird-chat/.env` (0600). Relay config only — no identity. | Humans |
+| `treebird-chat-wizard` (`trbcw`) | Interactive 7-step session setup wizard. | Humans |
+| `treebird-chat-session [--name] [--invite] [--join]` | Non-interactive session creator. Registers `chat-id → file`. Starts gemma-bridge if gemma invited. | Humans / scripts |
+| `treebird-chat-join <chat-id> [--as] [--tui] [--mention-only]` (`trbc join`) | Join a registered session — auto-resolves relay + file from config. Spawns supervised bridge + corrwait. | Anyone |
 | `corrwait <file> [--as <agent>] [--end-word "/end"] [--timeout 540]` | Blocking poll. Exits on WAKE / END / TIMEOUT / REVOKED. | Agents |
 | `treebird-chat <file> [--as <agent>]` | Interactive chat TUI. Send + live receive. Shows last 30 lines of history on join. | Humans |
 | `treebird-chat-tail <file> [--from-start]` | Read-only colorized tail. | Anyone |
@@ -281,12 +304,17 @@ The 540s default keeps each `corrwait` call inside the typical 600s shell timeou
 
 treebird-chat is filesystem-only. Any sync layer that mirrors the chat file across machines works:
 
-- **Syncthing** (recommended) — sub-second propagation, no central server, conflict files as a safety net
+- **smalltoak bridge** (`treebird-chat-bridge` / `trbc join`) — real-time relay across networks; set it up once with `trbc init`
+- **Syncthing** — sub-second propagation, no central server, conflict files as a safety net
 - **NFS / SMB** — also fine if the agents share the mount
 - **Git pull** — works for slow turn-taking; not for real-time
 - **rsync over ssh** — for one-shot bridging
 
+> **Pick exactly one sync layer per file.** Running the smalltoak bridge *and* a file-sync (git/Syncthing) on the **same** file conflicts — git's atomic-rename saves desync a live bridge, and you lose messages. `treebird-chat-bridge` warns when the file it's bridging is inside a git repo (silence with `TREEBIRD_CHAT_NO_GIT_WARN=1` once you've picked git-off for that session).
+
 When using sync, run all agent `corrwait` loops with `usePolling: true` (default in our chokidar config) so they survive atomic-rename saves from text editors.
+
+The relay URL comes from `SMALLTOAK_URL` in `~/.treebird-chat/.env` (canonical; `SMALLTOAK_SERVER_URL` is a back-compat alias) or the envoak vault — `trbc init` writes it, so `trbc join` and `treebird-chat-bridge` need no `--smalltoak-url` flag after first run.
 
 ### Smalltoak and multiple network interfaces
 
