@@ -117,7 +117,7 @@ Short, focused. Prefix with module: `corrwait: filter self-wakes` or `lib/watche
 
 ### Tests
 
-`node --test test/` — 63 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, and corrwait. Use Node's `--test` runner; no heavy framework.
+`node --test test/` — 77 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, corrwait, path-traversal, and catchup. Use Node's `--test` runner; no heavy framework.
 
 ## Working on treebird-chat
 
