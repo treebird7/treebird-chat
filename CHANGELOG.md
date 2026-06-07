@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## 0.3.6 — 2026-06-07
+
+### Changed (behavior change for consumers that read `newContent`)
+
+- **`corrwait` WAKE/CATCHUP payload is lean by default.** It now emits
+  `wakeLines` (the new wake-relevant lines since the cursor, excluding the
+  agent's own posts) and **omits `newContent` unless `--raw` is passed.**
+  Previously every wake carried the delta twice — `wakeLines` plus `newContent`
+  (a raw join of *all* new lines, including the agent's own just-posted ones) —
+  roughly doubling the payload an agent re-ingests each poll and adding
+  self-echo. That per-wake cost is the dominant token sink in a busy room.
+  - The mention-scanning bridge (`lib/bridge-agent-base.mjs`, used by
+    gemma/memosan/add-bridge) passes `--raw` internally, so bridges are
+    unaffected. `treebird-chat-join` and the supervisor already read
+    `wakeLines`.
+  - Migration for external agent loops: read `wakeLines`; pass `--raw` if you
+    specifically need the raw full delta. Docs (`CLAUDE.md`, `README.md`)
+    updated accordingly.
+
+### Fixed
+
+- **`upsertUserEnv` strips CR/LF from values** (`lib/config.mjs`) — a newline in
+  a `--url`/`--token` (or vault) value injected an extra line into
+  `~/.treebird-chat/.env` on parse-back. Values are operator-supplied so it's
+  not a remote exploit, but a pasted token with a trailing newline no longer
+  silently corrupts the file. (Surfaced by `/ts-review` on the 0.3.5 `trbc init`.)
+
 ## 0.3.4 — 2026-05-30
 
 ### Changed (breaking for direct `appendLines` callers)
