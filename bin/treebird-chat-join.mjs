@@ -64,8 +64,9 @@ const { agent } = identity;
 if (!smalltoakUrl) smalltoakUrl = process.env.SMALLTOAK_URL || resolveSmalltoakUrl().url;
 if (!smalltoakUrl) {
   process.stderr.write(
-    'No smalltoak URL. Pass --smalltoak-url, set SMALLTOAK_SERVER_URL in ~/.treebird-chat/.env,\n' +
-    'or (with envoak) `envoak vault set treebird-chat SMALLTOAK_SERVER_URL <url>`.\n'
+    'No smalltoak URL. Run `trbc init` to save it once, or pass --smalltoak-url,\n' +
+    'set SMALLTOAK_URL in ~/.treebird-chat/.env, or (with envoak)\n' +
+    '`envoak vault set treebird-chat SMALLTOAK_SERVER_URL <url>`.\n'
   );
   process.exit(1);
 }
@@ -115,12 +116,8 @@ if (certFile) {
 const token = process.env.SMALLTOAK_TOKEN;
 if (!token) {
   process.stderr.write(
-    'No SMALLTOAK_TOKEN. Add it to ~/.treebird-chat/.env:\n' +
-    '  mkdir -p ~/.treebird-chat && chmod 700 ~/.treebird-chat\n' +
-    '  printf \'SMALLTOAK_TOKEN=%s\\n\' \\\n' +
-    '    "$(envoak vault get treebird-chat SMALLTOAK_TOKEN)" \\\n' +
-    '    >> ~/.treebird-chat/.env\n' +
-    '  chmod 600 ~/.treebird-chat/.env\n'
+    'No SMALLTOAK_TOKEN. Run `trbc init --token <token>` (or `trbc init --from-vault`)\n' +
+    'to save it to ~/.treebird-chat/.env once.\n'
   );
   process.exit(1);
 }

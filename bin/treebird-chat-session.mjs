@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn } from 'node:child_process';
-import { spawnEnv } from '../lib/config.mjs';
+import { spawnEnv, saveSession } from '../lib/config.mjs';
 import { resolveIdentity } from '../lib/identity.mjs';
 
 const __dirname  = dirname(fileURLToPath(import.meta.url));
@@ -144,7 +144,8 @@ const { name, invites, owner: ownerArg, dir, join } = parseArgs(process.argv.sli
 const { owner, verified: ownerVerified, explicit: ownerExplicit } = resolveOwner(ownerArg);
 
 const sessionName = name || today();
-const fileName    = `CONSORTIUM_${safeFileSegment(sessionName)}_${today()}.md`;
+const chatId      = safeFileSegment(sessionName);
+const fileName    = `CONSORTIUM_${chatId}_${today()}.md`;
 const filePath    = resolve(dir, fileName);
 
 // Create dir + file
@@ -153,7 +154,14 @@ if (!existsSync(filePath)) {
   writeFileSync(filePath, `# ${fileName.replace('.md', '')}\n\n`, 'utf8');
 }
 
+// Register chat-id → file path so `treebird-chat-join <chat-id>` (and the bridge)
+// resolve THIS file instead of an orphan /tmp mirror. The chat-id is the same
+// safeFileSegment used for the bridge + remote-join hint below, so a remote
+// joiner who runs `trbc join <chat-id>` lands on the real registered file.
+saveSession(chatId, { filePath });
+
 process.stdout.write(`\n📄 Session: ${filePath}\n`);
+process.stdout.write(`   chat-id: ${chatId}  (registered → join with: trbc join ${chatId} --as <name>)\n`);
 process.stdout.write(`   Owner: ${owner}${ownerVerified ? ' (envoak-verified)' : ' (unverified)'}\n\n`);
 if (!ownerVerified) {
   process.stdout.write(
@@ -193,7 +201,6 @@ if (invites.includes('gemma')) {
 
 // Cross-machine: creating a session does NOT auto-register it with smalltoak.
 // Surface the two-step bridge → remote-join flow so it isn't a hidden gotcha.
-const chatId = safeFileSegment(sessionName);
 const ips = lanIps();
 const hostUrl = `http://${ips[0]}:3000`;
 process.stdout.write(

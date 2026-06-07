@@ -24,7 +24,8 @@ bin/
   treebird-chat-allow.mjs  — owner: enable agent on a chat
   treebird-chat-deny.mjs   — owner: disable agent on a chat
   treebird-chat-join.mjs   — one-command remote session join (smalltoak)
-  treebird-chat-session.mjs — non-interactive session creator
+  treebird-chat-session.mjs — non-interactive session creator (registers chat-id → file)
+  treebird-chat-init.mjs    — first-run: write SMALLTOAK_URL + token to ~/.treebird-chat/.env
   treebird-chat-wizard.mjs  — interactive 7-step session setup wizard
 lib/
   identity.mjs        — verify ENVOAK_AGENT_LABEL → strip machine suffix
@@ -36,6 +37,14 @@ lib/
 ```
 
 ## Non-obvious things
+
+### One sync layer per file — never two
+
+A chat file must have exactly ONE cross-machine sync layer: the smalltoak bridge **or** a file-sync (git/Syncthing/NFS), never both on the same file. Running a bridge on a git-tracked file and then `git pull --autostash`/`checkout` atomic-renames the file out from under the bridge and desyncs its cursor (the 2026-06-07 incident — two transports, lost messages). `lib/config.mjs#gitRepoRootFor` powers a startup warning in `treebird-chat-bridge` when the bridged file lives in a git repo (silence with `TREEBIRD_CHAT_NO_GIT_WARN=1`).
+
+### Simple/automatic join: init → register → join
+
+`treebird-chat-init` (`trbc init`) persists `SMALLTOAK_URL` + `SMALLTOAK_TOKEN` to `~/.treebird-chat/.env` (0600) — **relay config only, never an identity** (a persisted `ENVOAK_AGENT_LABEL`/`BIRDCHAT_AGENT` would silently beat `--as`). `treebird-chat-session` registers `chat-id → filePath` in `sessions.json`, so `trbc join <chat-id> --as <name>` auto-resolves the relay (`resolveSmalltoakUrl`) AND the real file (`resolveMirrorFile` returns the registered path, not a `/tmp` mirror). `trbc init`/`trbc join` are subcommand dispatches in `bin/treebird-chat.mjs`. Env var is `SMALLTOAK_URL` (canonical, matches `SMALLTOAK_TOKEN`); `SMALLTOAK_SERVER_URL` is a back-compat alias.
 
 ### The cursor is implicit
 
@@ -117,7 +126,7 @@ Short, focused. Prefix with module: `corrwait: filter self-wakes` or `lib/watche
 
 ### Tests
 
-`npm test` (= `node --test test/*.test.mjs`) — ~179 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, identity, corrwait (catchup/supervisor), bridge-errors, resolve-* (mirror/public-url/smalltoak-url), smalltoak-tls, sub-* (bridge/git), and rubber-duck suites. The two `.js` suites (p1-write, p2-on-mention, +7) run via `node --test test/index.js`. Use Node's `--test` runner; no heavy framework. (Note: `node --test test/` with a bare dir under-discovers — use the `npm test` glob.)
+`npm test` (= `node --test test/*.test.mjs`) — ~188 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, identity, corrwait (catchup/supervisor), bridge-errors, resolve-* (mirror/public-url/smalltoak-url), smalltoak-tls, sub-* (bridge/git), and rubber-duck suites. The two `.js` suites (p1-write, p2-on-mention, +7) run via `node --test test/index.js`. Use Node's `--test` runner; no heavy framework. (Note: `node --test test/` with a bare dir under-discovers — use the `npm test` glob.)
 
 ## Working on treebird-chat
 

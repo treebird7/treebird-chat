@@ -9,7 +9,7 @@ import { createMarkdownArchive } from '../lib/markdown-archive.mjs';
 import { AuthError, createSmalltoakTransport } from '../lib/smalltoak-transport.mjs';
 import { loadPin } from '../lib/smalltoak-pin.mjs';
 import { formatBridgeError } from '../lib/bridge-errors.mjs';
-import { loadEnv, resolveSmalltoakUrl } from '../lib/config.mjs';
+import { loadEnv, resolveSmalltoakUrl, gitRepoRootFor } from '../lib/config.mjs';
 
 loadEnv();
 
@@ -66,6 +66,23 @@ async function main() {
   if (!existsSync(file)) {
     process.stderr.write(`File not found: ${file}\n`);
     process.exit(EXIT.ERROR);
+  }
+
+  // Dual-sync guard. A chat file should have ONE sync layer. If this file is
+  // inside a git work tree, a `git pull`/`checkout` will atomic-rename it out
+  // from under the bridge and desync the cursor (the 2026-06-07 incident). Warn
+  // — don't refuse, since the file may legitimately live in a repo for archival
+  // as long as nobody runs git on it mid-session. Set TREEBIRD_CHAT_NO_GIT_WARN=1
+  // to silence once acknowledged.
+  const repoRoot = gitRepoRootFor(file);
+  if (repoRoot && !process.env.TREEBIRD_CHAT_NO_GIT_WARN) {
+    process.stderr.write(
+      `[bridge] ⚠️  ${file}\n` +
+      `         is inside a git repo (${repoRoot}). Running the bridge AND git-syncing\n` +
+      `         the same file conflict — git's atomic-rename saves desync the bridge.\n` +
+      `         Pick ONE transport: bridge (don't git pull/push this file mid-session)\n` +
+      `         OR git (don't bridge it). Silence with TREEBIRD_CHAT_NO_GIT_WARN=1.\n`
+    );
   }
 
   const machine = process.env.TREEBIRD_MACHINE || os.hostname().split('.')[0];

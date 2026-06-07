@@ -8,7 +8,9 @@
 // - Max 3 lines per send (use \\n in input to add a newline; Enter sends)
 // - Exit: Ctrl-C, Ctrl-D, or `/end`
 
-import { resolve, basename, extname } from 'node:path';
+import { resolve, basename, extname, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { existsSync, statSync, writeFileSync, readFileSync } from 'node:fs';
 import { appendLines, MessageTooLongError } from '../lib/writer.mjs';
 import { open } from 'node:fs/promises';
@@ -42,6 +44,20 @@ function colorFor(author) {
 function nowHHMM() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// Subcommand dispatch — `trbc init …` and `trbc join …` delegate to the
+// dedicated binaries so the short alias is a single entrypoint. Checked BEFORE
+// the help guard so `trbc join --help` reaches join's own help, not the index.
+{
+  const argv = process.argv.slice(2);
+  const sub = argv[0];
+  const SUBCOMMANDS = { init: 'treebird-chat-init.mjs', join: 'treebird-chat-join.mjs' };
+  if (SUBCOMMANDS[sub]) {
+    const __dir = dirname(fileURLToPath(import.meta.url));
+    const r = spawnSync(process.execPath, [resolve(__dir, SUBCOMMANDS[sub]), ...argv.slice(1)], { stdio: 'inherit' });
+    process.exit(r.status ?? 0);
+  }
 }
 
 // args: <file> [--as <agent>] [--parent <parent-chat-file>]
