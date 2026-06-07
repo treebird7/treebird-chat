@@ -83,6 +83,19 @@ test('upsertUserEnv — overwrite:false keeps the existing value', () => {
   });
 });
 
+test('upsertUserEnv — strips CR/LF from values (no .env line injection)', () => {
+  withHome(() => {
+    // A value carrying a newline must NOT become two .env lines.
+    const { path } = upsertUserEnv({ SMALLTOAK_TOKEN: 'tok\nINJECTED=1', SMALLTOAK_URL: 'http://r:3000\r\n' });
+    const content = readFileSync(path, 'utf8');
+    assert.doesNotMatch(content, /^INJECTED=1$/m);          // injection neutralised
+    assert.match(content, /^SMALLTOAK_TOKEN=tokINJECTED=1$/m); // newline stripped, value joined
+    assert.match(content, /^SMALLTOAK_URL=http:\/\/r:3000$/m); // trailing CRLF stripped
+    // No stray line: exactly the two keys + trailing newline.
+    assert.equal(content.trim().split('\n').length, 2);
+  });
+});
+
 // ── gitRepoRootFor — dual-sync detector ──
 
 test('gitRepoRootFor — finds the repo root for a file inside a git work tree', () => {
