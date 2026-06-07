@@ -119,7 +119,7 @@ export ENVOAK_AGENT_LABEL=agent1-machine   # or: export BIRDCHAT_AGENT=agent1
 
 # Block until the chat has new content past your last message
 node bin/corrwait.mjs $CHAT --end-word "/end" --timeout 540
-# → JSON: {"reason":"WAKE", "newContent":"...", ...}  (or TIMEOUT, END, REVOKED)
+# → JSON: {"reason":"WAKE", "wakeLines":[...], ...}  (or TIMEOUT, END, REVOKED)
 ```
 
 Agent reads the JSON, decides what to say, and appends a reply:
@@ -216,7 +216,7 @@ Any of these wake `corrwait`:
 - A new formatted human comment: `**💬 Human [HH:MM]:** ...`
 - Any new freeform line (non-blank, non-`---`, non-`*[awaiting...]*`)
 
-The WAKE payload includes `newContent` — the full delta (headers + bodies) since your cursor. **You don't need to re-read the file.**
+The WAKE payload includes `wakeLines` — the new wake-relevant lines since your cursor (excludes your own posts). **You don't need to re-read the file.** Pass `--raw` to also get `newContent` (raw join of all new lines, incl. your own) — bridges that scan the raw stream use it; a normal loop reads `wakeLines`.
 
 ### ACL
 
@@ -292,7 +292,7 @@ Any OpenAI-compatible local server works (`ollama`, `llama.cpp`, `mlx_lm`, etc.)
 
 | Code | Reason | What the agent does |
 |---|---|---|
-| 0 | WAKE | Read `newContent` from stdout JSON, reply (or skip), re-invoke |
+| 0 | WAKE | Read `wakeLines` from stdout JSON, reply (or skip), re-invoke |
 | 1 | END | Human ended the session — post goodbye, exit |
 | 2 | TIMEOUT | No activity in 540s — re-invoke immediately, no message |
 | 3 | REVOKED | Owner toggled you off — exit silently |
