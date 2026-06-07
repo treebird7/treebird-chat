@@ -144,9 +144,14 @@ const { name, invites, owner: ownerArg, dir, join } = parseArgs(process.argv.sli
 const { owner, verified: ownerVerified, explicit: ownerExplicit } = resolveOwner(ownerArg);
 
 const sessionName = name || today();
-const chatId      = safeFileSegment(sessionName);
-const fileName    = `CONSORTIUM_${chatId}_${today()}.md`;
+const fileName    = `CONSORTIUM_${safeFileSegment(sessionName)}_${today()}.md`;
 const filePath    = resolve(dir, fileName);
+// chat-id = filename without `.md` — DETERMINISTIC from the file, so every
+// machine derives the SAME id. A slug-vs-filename split (slug `flow-carte-blanche`
+// vs filename `FLOW_carte-blanche_2026-06-07`) caused a cross-machine silence on
+// 2026-06-07; deriving from the filename matches what a filename-keyed client
+// (e.g. the obsidian plugin) computes, so the two can't drift.
+const chatId      = fileName.replace(/\.md$/, '');
 
 // Create dir + file
 mkdirSync(dir, { recursive: true });

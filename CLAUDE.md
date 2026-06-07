@@ -109,6 +109,8 @@ Foreign-author lines and human comments (`**💬 Human ...`) still wake normally
 - `[HH:MM agent] msg` flat format (preferred for new chats)
 - Any other non-blank, non-`---`, non-`*[awaiting]*` line as freeform
 
+**Flat format is FROZEN (cc1 + sasusan consortium, 2026-06-07)** — `FLAT_RE` groups are `1=date (YYYY-MM-DD, optional) · 2=time (HH:MM) · 3=agent · 4=instance (#N, optional, NO space) · 5=message`. Old dateless `[HH:MM agent] msg` lines still parse (date/instance absent). The same regex is the bridge wire format (`lib/message-codec.mjs`) and the obsidian-plugin parser — changing it breaks cross-tool parity, so `test/message-codec.test.mjs` pins `FLAT_RE.source`. Per-line dates are rare (use a day-separator, not a date per line — ~26KB bloat on a 2000-line log). Cursor self-detection (`watcher.mjs` per-agent regexes via `TS_PREFIX`) tolerates the optional date. **chat-id = `basename(file,'.md')`** (deterministic across machines — a slug-vs-filename split caused a cross-machine silence on 2026-06-07).
+
 The cursor logic handles round and flat; freeform doesn't have a cursor anchor (it's not yours unless you can prove it).
 
 ## Conventions
@@ -126,7 +128,7 @@ Short, focused. Prefix with module: `corrwait: filter self-wakes` or `lib/watche
 
 ### Tests
 
-`npm test` (= `node --test test/*.test.mjs`) — ~188 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, identity, corrwait (catchup/supervisor), bridge-errors, resolve-* (mirror/public-url/smalltoak-url), smalltoak-tls, sub-* (bridge/git), and rubber-duck suites. The two `.js` suites (p1-write, p2-on-mention, +7) run via `node --test test/index.js`. Use Node's `--test` runner; no heavy framework. (Note: `node --test test/` with a bare dir under-discovers — use the `npm test` glob.)
+`npm test` (= `node --test test/*.test.mjs`) — ~196 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, identity, corrwait (catchup/supervisor), bridge-errors, resolve-* (mirror/public-url/smalltoak-url), smalltoak-tls, sub-* (bridge/git), and rubber-duck suites. The two `.js` suites (p1-write, p2-on-mention, +7) run via `node --test test/index.js`. Use Node's `--test` runner; no heavy framework. (Note: `node --test test/` with a bare dir under-discovers — use the `npm test` glob.)
 
 ## Working on treebird-chat
 

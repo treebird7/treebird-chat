@@ -127,7 +127,8 @@ let lastAuthor = null;
       for (const line of recent) {
         const m = line.match(FLAT_RE);
         if (!m) continue;
-        const [, time, author, msg] = m;
+        const [, , time, authorRaw, instance, msg] = m;  // date, time, agent, instance, msg
+        const author = authorRaw.trim() + (instance ? `#${instance}` : '');
         const c = colorFor(author);
         const cols = process.stdout.columns || 80;
         const prefixLen = time.length + 1 + author.length + 2;
@@ -151,8 +152,10 @@ function highlightLinks(text) {
 function printLine(line) {
   const m = line.match(FLAT_RE);
   if (m) {
-    const [, time, author, msg] = m;
-    if (author === agent) { lastAuthor = author; return; } // suppress our own echo
+    const [, , time, authorRaw, instance, msg] = m;  // date, time, agent, instance, msg
+    const base = authorRaw.trim();
+    const author = base + (instance ? `#${instance}` : '');
+    if (base === agent) { lastAuthor = author; return; } // suppress our own echo
     const c = colorFor(author);
     const cols = process.stdout.columns || 80;
     // Blank line between speaker changes for readability.

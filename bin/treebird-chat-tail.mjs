@@ -37,9 +37,11 @@ function colorFor(author) {
 function printLine(line) {
   const m = line.match(FLAT_RE);
   if (m) {
-    const [, time, author, msg] = m;
+    const [, date, time, authorRaw, instance, msg] = m;  // date, time, agent, instance, msg
+    const author = authorRaw.trim() + (instance ? `#${instance}` : '');
+    const ts = date ? `${date} ${time}` : time;
     const c = colorFor(author);
-    process.stdout.write(`${DIM}${time}${RESET} ${c}${author}${RESET} ${msg}\n`);
+    process.stdout.write(`${DIM}${ts}${RESET} ${c}${author}${RESET} ${msg}\n`);
   } else if (line.trim()) {
     // Non-flat content (round headers, separators, freeform) — show dim.
     process.stdout.write(`${DIM}${line}${RESET}\n`);

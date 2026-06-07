@@ -96,16 +96,34 @@ test('agent name with hyphens (e.g. sancho-nightly) escapes correctly', () => {
   } finally { cleanup(); }
 });
 
-test('FLAT_RE parses parallel-hand suffix (e.g. yosef #2)', () => {
-  const m = FLAT_RE.exec('[14:23 yosef #2] hello from parallel hand');
-  assert.ok(m, 'FLAT_RE should match #N suffix lines');
-  assert.equal(m[1], '14:23');
-  assert.equal(m[2], 'yosef #2');
-  assert.equal(m[3], 'hello from parallel hand');
+test('FLAT_RE — frozen format groups: date, time, agent, instance, message', () => {
+  // No-space #N (frozen 2026-06-07 — agent#N, not agent #N)
+  let m = FLAT_RE.exec('[14:23 yosef#2] hello from parallel hand');
+  assert.ok(m, 'should match agent#N');
+  assert.equal(m[1], undefined, 'no date');
+  assert.equal(m[2], '14:23');
+  assert.equal(m[3], 'yosef');
+  assert.equal(m[4], '2');
+  assert.equal(m[5], 'hello from parallel hand');
+
+  // Backward-compat: dateless, instance-less line still parses.
+  m = FLAT_RE.exec('[09:05 watsan] plain line');
+  assert.ok(m);
+  assert.equal(m[3], 'watsan');
+  assert.equal(m[4], undefined);
+  assert.equal(m[5], 'plain line');
+
+  // Optional date prefix.
+  m = FLAT_RE.exec('[2026-06-07 14:23 yosef] dated');
+  assert.ok(m);
+  assert.equal(m[1], '2026-06-07');
+  assert.equal(m[2], '14:23');
+  assert.equal(m[3], 'yosef');
+  assert.equal(m[5], 'dated');
 });
 
 test('self flat line with #N suffix is filtered (same base agent)', () => {
-  const { file, cleanup } = fixture('[12:00 yosef #2] parallel reply\n[12:01 watsan] foreign\n');
+  const { file, cleanup } = fixture('[12:00 yosef#2] parallel reply\n[12:01 watsan] foreign\n');
   try {
     const diff = diffSinceBaseline(file, emptyBaseline, '/end', 'yosef');
     assert.equal(diff.woke, true);
@@ -113,14 +131,15 @@ test('self flat line with #N suffix is filtered (same base agent)', () => {
   } finally { cleanup(); }
 });
 
-test('cursor advances past #N parallel-hand lines', () => {
+test('cursor advances past #N parallel-hand lines (and dated self lines)', () => {
   const lines = [
     '[12:00 watsan] hey',
     '[12:01 yosef] first hand',
-    '[12:02 yosef #2] second hand',
-    '[12:03 watsan] reply',
+    '[12:02 yosef#2] second hand',
+    '[2026-06-07 12:04 yosef] dated self line',
+    '[12:05 watsan] reply',
   ];
-  // Cursor should be after the last yosef line (index 2 → cursor = 3)
+  // Cursor should be after the last yosef line (the dated one, index 3 → 4).
   const cursor = findCursorAfterLastSelfRound(lines, 'yosef');
-  assert.equal(cursor, 3, 'cursor should advance past yosef #2 line');
+  assert.equal(cursor, 4, 'cursor should advance past yosef#2 and the dated self line');
 });
