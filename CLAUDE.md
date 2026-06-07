@@ -117,7 +117,7 @@ Short, focused. Prefix with module: `corrwait: filter self-wakes` or `lib/watche
 
 ### Tests
 
-`npm test` (= `node --test test/*.test.mjs`) — 169 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, identity, corrwait (catchup/supervisor), bridge-errors, resolve-* (mirror/public-url/smalltoak-url), smalltoak-tls, sub-* (bridge/git), and rubber-duck suites. The two `.js` suites (p1-write, p2-on-mention, +7) run via `node --test test/index.js`. Use Node's `--test` runner; no heavy framework. (Note: `node --test test/` with a bare dir under-discovers — use the `npm test` glob.)
+`npm test` (= `node --test test/*.test.mjs`) — ~179 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, identity, corrwait (catchup/supervisor), bridge-errors, resolve-* (mirror/public-url/smalltoak-url), smalltoak-tls, sub-* (bridge/git), and rubber-duck suites. The two `.js` suites (p1-write, p2-on-mention, +7) run via `node --test test/index.js`. Use Node's `--test` runner; no heavy framework. (Note: `node --test test/` with a bare dir under-discovers — use the `npm test` glob.)
 
 ## Working on treebird-chat
 

@@ -1,6 +1,6 @@
 {
   "name": "treebird-chat",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Terminal chat CLI for humans and AI agents — shared markdown file, zero server, real-time",
   "type": "module",
   "repository": {
@@ -20,6 +20,8 @@
   "bin": {
     "corrwait": "bin/corrwait.mjs",
     "treebird-chat": "bin/treebird-chat.mjs",
+    "trbc": "bin/treebird-chat.mjs",
+    "trbcw": "bin/treebird-chat-wizard.mjs",
     "treebird-chat-tail": "bin/treebird-chat-tail.mjs",
     "treebird-chat-allow": "bin/treebird-chat-allow.mjs",
     "treebird-chat-deny": "bin/treebird-chat-deny.mjs",
