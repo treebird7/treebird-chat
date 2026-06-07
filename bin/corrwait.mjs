@@ -45,6 +45,8 @@ usage: corrwait <file> [--as <agent>] [--session <chat-id>]
   --write <message> append one line as this agent, print a WROTE confirmation, exit
   --catchup         non-blocking one-shot: emit all new content since cursor, exit
   --on-mention      only wake on lines that @mention this agent
+  --raw             also emit newContent (raw new lines incl. self); default is
+                    wakeLines only — leaner payload, no self-echo (bridges pass this)
   --end-word <w>    human end sentinel (default: /end)
   --timeout <secs>  self-timeout; caller re-invokes on TIMEOUT (default: 540)
 
@@ -66,6 +68,7 @@ function parseArgs(argv) {
     write: null,
     writeMode: false,
     catchup: false,
+    raw: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -75,6 +78,7 @@ function parseArgs(argv) {
     else if (a === '--session') args.session = argv[++i];
     else if (a === '--on-mention') args.onMention = true;
     else if (a === '--catchup') args.catchup = true;
+    else if (a === '--raw') args.raw = true;
     else if (a === '--write') {
       args.writeMode = true;
       args.write = argv[++i];
@@ -89,7 +93,7 @@ function emit(reason, payload = {}) {
 }
 
 async function main() {
-  const { file: rawFile, session, endWord, timeoutSec, as, onMention, write, writeMode: isWriteMode, catchup: isCatchup } =
+  const { file: rawFile, session, endWord, timeoutSec, as, onMention, write, writeMode: isWriteMode, catchup: isCatchup, raw } =
     parseArgs(process.argv.slice(2));
 
   // --session <chat-id>: look up file path from session registry
@@ -194,7 +198,7 @@ async function main() {
       agent,
       verified,
       wakeLines: diff.wakeLines,
-      newContent: diff.newLines.join('\n'),
+      ...(raw ? { newContent: diff.newLines.join('\n') } : {}),
       newRound: diff.hasNewRound,
       newHuman: diff.hasNewHuman,
       newFreeform: diff.hasNewFreeform,
@@ -239,13 +243,13 @@ async function main() {
     return finish(EXIT.END, 'END', {
       source: 'end-word',
       endWord,
-      newContent: initial.newLines.join('\n'),
+      ...(raw ? { newContent: initial.newLines.join('\n') } : {}),
     });
   }
   if (initial.woke) {
     return finish(EXIT.WAKE, initial.priority === 'urgent' ? 'URGENT_WAKE' : 'WAKE', {
       wakeLines: initial.wakeLines,
-      newContent: initial.newLines.join('\n'),
+      ...(raw ? { newContent: initial.newLines.join('\n') } : {}),
       newRound: initial.hasNewRound,
       newHuman: initial.hasNewHuman,
       newFreeform: initial.hasNewFreeform,
@@ -292,7 +296,7 @@ async function main() {
       clearTimeout(timer);
       return finish(EXIT.WAKE, diff.priority === 'urgent' ? 'URGENT_WAKE' : 'WAKE', {
         wakeLines: diff.wakeLines,
-        newContent: diff.newLines.join('\n'),
+        ...(raw ? { newContent: diff.newLines.join('\n') } : {}),
         newRound: diff.hasNewRound,
         newHuman: diff.hasNewHuman,
         newFreeform: diff.hasNewFreeform,

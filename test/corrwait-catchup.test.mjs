@@ -42,7 +42,7 @@ test('catchup on empty file emits CATCHUP with woke=false and exits 0', () => {
     assert.equal(status, 0);
     assert.equal(json.reason, 'CATCHUP');
     assert.equal(json.woke, false);
-    assert.equal(json.newContent, '');
+    assert.equal(json.newContent, undefined); // lean default: no newContent without --raw
     assert.deepEqual(json.wakeLines, []);
   } finally { cleanup(); }
 });
@@ -54,7 +54,7 @@ test('catchup with new foreign content emits CATCHUP with woke=true', () => {
     assert.equal(status, 0);
     assert.equal(json.reason, 'CATCHUP');
     assert.equal(json.woke, true);
-    assert.ok(json.newContent.includes('[10:00 alice] hello'));
+    assert.equal(json.newContent, undefined); // lean default: delta carried by wakeLines
     assert.ok(json.wakeLines.some((l) => l.includes('[10:00 alice] hello')));
   } finally { cleanup(); }
 });
@@ -67,7 +67,7 @@ test('catchup with only self-authored content emits CATCHUP with woke=false', ()
     assert.equal(status, 0);
     assert.equal(json.reason, 'CATCHUP');
     assert.equal(json.woke, false);
-    assert.equal(json.newContent, '');
+    assert.equal(json.newContent, undefined);
   } finally { cleanup(); }
 });
 
@@ -82,7 +82,27 @@ test('catchup advances cursor so second catchup sees nothing new', () => {
     const second = run(file);
     assert.equal(second.json.reason, 'CATCHUP');
     assert.equal(second.json.woke, false);
-    assert.equal(second.json.newContent, '');
+    assert.equal(second.json.newContent, undefined);
+  } finally { cleanup(); }
+});
+
+test('newContent omitted by default; wakeLines carries the delta (lean payload)', () => {
+  const { file, cleanup } = fixture('[10:00 alice] hello\n');
+  try {
+    const { json } = run(file);
+    assert.equal(json.woke, true);
+    assert.equal(json.newContent, undefined);
+    assert.ok(json.wakeLines.some((l) => l.includes('[10:00 alice] hello')));
+  } finally { cleanup(); }
+});
+
+test('--raw includes newContent alongside wakeLines', () => {
+  const { file, cleanup } = fixture('[10:00 alice] hello\n');
+  try {
+    const { json } = run(file, ['--raw']);
+    assert.equal(json.woke, true);
+    assert.ok(json.newContent.includes('[10:00 alice] hello'));
+    assert.ok(json.wakeLines.some((l) => l.includes('[10:00 alice] hello')));
   } finally { cleanup(); }
 });
 
