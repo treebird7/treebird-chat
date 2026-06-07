@@ -16,9 +16,11 @@
 
 import { resolve, dirname } from 'node:path';
 import { existsSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawnSync, spawn } from 'node:child_process';
 import { spawnEnv } from '../lib/config.mjs';
+import { resolveIdentity } from '../lib/identity.mjs';
 
 const __dirname  = dirname(fileURLToPath(import.meta.url));
 const ALLOW_BIN  = resolve(__dirname, 'treebird-chat-allow.mjs');
@@ -30,8 +32,25 @@ const DEFAULT_DIR = process.env.TREEBIRD_COLLAB_DIR
 
 // ── Args ──────────────────────────────────────────────────────────────────────
 
+const USAGE = `treebird-chat-session — create a session file, set owner + ACL, print join commands
+
+usage: treebird-chat-session [--name <topic>] [--owner <agent>] [--dir <path>]
+                             [--invite <agent>]... [--join]
+
+  --name <topic>    session topic (default: today's date). File: CONSORTIUM_<name>_<date>.md
+  --owner <agent>   room owner (default: your envoak identity, else 'treebird')
+  --dir <path>      output dir (default: $TREEBIRD_COLLAB_DIR or ~/collab)
+  --invite <agent>  allow an agent in the ACL (repeatable)
+  --join            open the TUI immediately after creating
+  --help, -h        show this help
+`;
+
 function parseArgs(argv) {
-  const args = { name: null, invites: [], owner: 'treebird', dir: DEFAULT_DIR, join: false };
+  if (argv.some((a) => a === '--help' || a === '-h')) {
+    process.stdout.write(USAGE);
+    process.exit(0);
+  }
+  const args = { name: null, invites: [], owner: null, dir: DEFAULT_DIR, join: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if      (a === '--name')    args.name  = argv[++i];
@@ -39,8 +58,26 @@ function parseArgs(argv) {
     else if (a === '--owner')   args.owner = argv[++i];
     else if (a === '--dir')     args.dir   = resolve(argv[++i]);
     else if (a === '--join')    args.join  = true;
+    else {
+      // Reject unknown flags instead of silently ignoring them — previously
+      // `treebird-chat-session --help` (and any typo'd flag) fell through and
+      // created a real session.
+      process.stderr.write(`unknown argument: ${a}\n\n${USAGE}`);
+      process.exit(2);
+    }
   }
   return args;
+}
+
+// Resolve the room owner. Prefer an explicit --owner; otherwise derive from the
+// running envoak identity so a room isn't silently owned by a phantom default.
+// Falls back to 'treebird' only when no identity is set at all (the historical
+// default). Returns { owner, verified } so the caller can warn on unverified.
+function resolveOwner(explicit) {
+  if (explicit) return { owner: explicit, verified: false, explicit: true };
+  const id = resolveIdentity();
+  if (id) return { owner: id.agent, verified: id.verified, explicit: false };
+  return { owner: 'treebird', verified: false, explicit: false };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -74,6 +111,26 @@ function startGemmaBridge(filePath) {
   return child.pid;
 }
 
+// Best-effort primary LAN IPv4, for the cross-machine join hint. Skips
+// link-local (169.254.x, self-assigned — not routable) and prefers a real
+// private-range address so a remote machine has a host it can actually reach.
+function lanIps() {
+  const candidates = [];
+  for (const addrs of Object.values(networkInterfaces())) {
+    for (const a of addrs || []) {
+      if (a.family === 'IPv4' && !a.internal && !a.address.startsWith('169.254.')) {
+        candidates.push(a.address);
+      }
+    }
+  }
+  const isPrivate = (ip) =>
+    ip.startsWith('192.168.') || ip.startsWith('10.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
+  // Private addresses first (more likely the LAN the remote shares), then rest.
+  const ordered = [...candidates.filter(isPrivate), ...candidates.filter(ip => !isPrivate(ip))];
+  return ordered.length ? ordered : ['<this-host-ip>'];
+}
+
 // Strip path separators / traversal from a user-supplied name before it
 // becomes part of a filename.
 function safeFileSegment(s) {
@@ -82,7 +139,9 @@ function safeFileSegment(s) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-const { name, invites, owner, dir, join } = parseArgs(process.argv.slice(2));
+const { name, invites, owner: ownerArg, dir, join } = parseArgs(process.argv.slice(2));
+
+const { owner, verified: ownerVerified, explicit: ownerExplicit } = resolveOwner(ownerArg);
 
 const sessionName = name || today();
 const fileName    = `CONSORTIUM_${safeFileSegment(sessionName)}_${today()}.md`;
@@ -94,7 +153,15 @@ if (!existsSync(filePath)) {
   writeFileSync(filePath, `# ${fileName.replace('.md', '')}\n\n`, 'utf8');
 }
 
-process.stdout.write(`\n📄 Session: ${filePath}\n\n`);
+process.stdout.write(`\n📄 Session: ${filePath}\n`);
+process.stdout.write(`   Owner: ${owner}${ownerVerified ? ' (envoak-verified)' : ' (unverified)'}\n\n`);
+if (!ownerVerified) {
+  process.stdout.write(
+    ownerExplicit
+      ? `⚠️  Owner "${owner}" was set explicitly and is not envoak-verified. Names are unverified and impersonable; the ACL is the only gate.\n\n`
+      : `⚠️  No envoak identity found — owner defaulted to "${owner}" (unverified). Run \`envoak identity pull --export\` first for a verified owner.\n\n`
+  );
+}
 
 // Allow owner
 allow(filePath, owner, owner);
@@ -119,9 +186,23 @@ appendFileSync(
 
 // Print the export for easy copy-paste
 process.stdout.write(`\nexport CHAT=${filePath}\n`);
-process.stdout.write(`\nJoin:  node ${CHAT_BIN} $CHAT\n`);
+process.stdout.write(`\nJoin (this machine):  node ${CHAT_BIN} $CHAT\n`);
 if (invites.includes('gemma')) {
   process.stdout.write(`Gemma: already running. Say @gemma in chat to talk to it.\n`);
+}
+
+// Cross-machine: creating a session does NOT auto-register it with smalltoak.
+// Surface the two-step bridge → remote-join flow so it isn't a hidden gotcha.
+const chatId = safeFileSegment(sessionName);
+const ips = lanIps();
+const hostUrl = `http://${ips[0]}:3000`;
+process.stdout.write(
+  `\nJoin from ANOTHER machine (e.g. an agent on m2):\n` +
+  `  1. here (host):    treebird-chat-bridge ${chatId} $CHAT --smalltoak-url ${hostUrl}\n` +
+  `  2. there (remote): treebird-chat-join ${chatId} --smalltoak-url ${hostUrl} --as <agent>\n`
+);
+if (ips.length > 1) {
+  process.stdout.write(`  # if the remote can't connect, try an alt host IP (same-subnet): ${ips.slice(1).map(ip => `http://${ip}:3000`).join('  ')}\n`);
 }
 process.stdout.write('\n');
 

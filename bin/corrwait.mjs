@@ -19,7 +19,7 @@
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import chokidar from 'chokidar';
-import { verifyAgentIdentity } from '../lib/identity.mjs';
+import { verifyAgentIdentity, parseLabel } from '../lib/identity.mjs';
 import { isAllowed, readAcl, aclPath, readCursor, writeCursor } from '../lib/access.mjs';
 import { appendLine } from '../lib/writer.mjs';
 import { loadEnv, loadSession } from '../lib/config.mjs';
@@ -35,7 +35,27 @@ loadEnv();
 
 const EXIT = { WAKE: 0, END: 1, TIMEOUT: 2, REVOKED: 3, ERROR: 4 };
 
+const USAGE = `corrwait — agent loop primitive: block until new chat content, or write/catch-up
+
+usage: corrwait <file> [--as <agent>] [--session <chat-id>]
+                 [--write <message>] [--catchup] [--on-mention]
+                 [--end-word "/end"] [--timeout 540]
+
+  --as <agent>      identity when no ENVOAK_AGENT_LABEL/BIRDCHAT_AGENT is set (unverified)
+  --write <message> append one line as this agent, print a WROTE confirmation, exit
+  --catchup         non-blocking one-shot: emit all new content since cursor, exit
+  --on-mention      only wake on lines that @mention this agent
+  --end-word <w>    human end sentinel (default: /end)
+  --timeout <secs>  self-timeout; caller re-invokes on TIMEOUT (default: 540)
+
+exit codes: 0 WAKE/CATCHUP/WROTE · 1 END · 2 TIMEOUT(re-invoke) · 3 REVOKED · 4 ERROR
+`;
+
 function parseArgs(argv) {
+  if (argv.some((a) => a === '--help' || a === '-h')) {
+    process.stdout.write(USAGE);
+    process.exit(0);
+  }
   const args = {
     file: null,
     session: null,
@@ -111,7 +131,18 @@ async function main() {
     process.stderr.write(`Identity check failed: ${e.message}\n`);
     process.exit(EXIT.ERROR);
   }
-  const { agent } = identity;
+  const { agent, verified } = identity;
+
+  // Identity-precedence footgun: --as is the lowest-priority source, so a
+  // leftover ENVOAK_AGENT_LABEL / BIRDCHAT_AGENT silently wins and the agent
+  // would post under the wrong name. Warn loudly instead of failing silently.
+  if (as && identity.source !== 'cli' && parseLabel(as).agent !== agent) {
+    process.stderr.write(
+      `[corrwait] note: --as ${as} ignored; using ${identity.source} identity "${agent}" ` +
+      `(ENVOAK_AGENT_LABEL/BIRDCHAT_AGENT take precedence over --as). ` +
+      `Run with a clean env to use --as.\n`
+    );
+  }
 
   const acl = readAcl(filePath);
   if (!acl) {
@@ -126,7 +157,11 @@ async function main() {
   }
 
   if (isWriteMode) {
-    await appendLine(filePath, agent, write.replace(/[\r\n]/g, ' '));
+    const message = write.replace(/[\r\n]/g, ' ');
+    await appendLine(filePath, agent, message);
+    // Confirm the write landed — previously --write succeeded silently, leaving
+    // no signal that the line was posted. Emit the author + verification status.
+    emit('WROTE', { agent, verified, message });
     process.exit(EXIT.WAKE);
   }
 
@@ -157,6 +192,7 @@ async function main() {
     } catch (e) { process.stderr.write(`[corrwait] writeCursor failed: ${e.message}\n`); }
     emit('CATCHUP', {
       agent,
+      verified,
       wakeLines: diff.wakeLines,
       newContent: diff.newLines.join('\n'),
       newRound: diff.hasNewRound,
@@ -186,7 +222,7 @@ async function main() {
         writeCursor(filePath, agent, realLines);
       } catch (e) { process.stderr.write(`[corrwait] writeCursor failed: ${e.message}\n`); }
     }
-    emit(reason, { agent, ...payload });
+    emit(reason, { agent, verified, ...payload });
     if (watcher) {
       watcher.close().finally(() => process.exit(code));
     } else {

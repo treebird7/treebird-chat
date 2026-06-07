@@ -23,6 +23,7 @@ import { readSubs, addSub, closeSubInParent } from '../lib/subs.mjs';
 import { readInviterCert, composeRemoteInvite, composeLocalInvite } from '../lib/invite-block.mjs';
 import { autoStageSub } from '../lib/sub-git.mjs';
 import { spawnSubBridge } from '../lib/sub-bridge.mjs';
+import { printCommandIndex, wantsHelp } from '../lib/help.mjs';
 
 const MAX_LINES = 3;
 const COLORS = ['\x1b[36m', '\x1b[35m', '\x1b[33m', '\x1b[32m', '\x1b[34m', '\x1b[91m', '\x1b[95m'];
@@ -44,6 +45,14 @@ function nowHHMM() {
 }
 
 // args: <file> [--as <agent>] [--parent <parent-chat-file>]
+// `help` / `--help` / `-h` print the toolkit command index and exit (no TUI).
+{
+  const argv0 = process.argv.slice(2);
+  if (argv0.length === 0 || wantsHelp(argv0)) {
+    printCommandIndex();
+    process.exit(0);
+  }
+}
 let file = null;
 let asArg = null;
 let parentFile = null;

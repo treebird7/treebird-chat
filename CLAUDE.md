@@ -11,7 +11,7 @@ treebird-chat is a small CLI toolkit (`~250 lines`) for human + multi-agent chat
 - **One file = one chat room.** Markdown, append-only by convention.
 - **Agents loop on `corrwait`** (`bin/corrwait.mjs`) — a blocking-poll CLI that exits when there's new content past the agent's last message. Zero token cost while blocked.
 - **Humans use `treebird-chat`** (`bin/treebird-chat.mjs`) — interactive TUI: send + live-receive in one window.
-- **Identity is envoak-gated.** `corrwait` and `treebird-chat` both read `ENVOAK_AGENT_LABEL` from env (set by `envoak identity pull --export`) and refuse to start without it. Agent name is *taken from envoak*, not args — no spoofing.
+- **Identity has three sources, only one verified.** `corrwait` and `treebird-chat` resolve identity in priority order: `ENVOAK_AGENT_LABEL` (set by `envoak identity pull --export` — vault-backed, **verified**) → `BIRDCHAT_AGENT` env → `--as <agent>` flag (both self-claimed, **unverified**). *Some* identity is required (they refuse with none), but it need not be a keyed one — `--as` works for anyone, including humans without envoak. **Names are NOT cryptographically enforced:** any name already in the ACL is postable via `--as <name>` (no per-write key check), so a non-keyed participant can impersonate a keyed agent's name. The ACL gates *participation*; verification is a display signal (`verified` flag on corrwait output; per-line marking is spec'd). Use envoak when impersonation actually matters. See `SPEC_identity-verification` in the private collab dir.
 - **Per-chat ACL sidecar** at `<file>.access.json`. Owner toggles agents on/off via `treebird-chat-allow` / `treebird-chat-deny`.
 
 ## Files
@@ -117,7 +117,7 @@ Short, focused. Prefix with module: `corrwait: filter self-wakes` or `lib/watche
 
 ### Tests
 
-`node --test test/` — 77 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, corrwait, path-traversal, and catchup. Use Node's `--test` runner; no heavy framework.
+`npm test` (= `node --test test/*.test.mjs`) — 169 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, identity, corrwait (catchup/supervisor), bridge-errors, resolve-* (mirror/public-url/smalltoak-url), smalltoak-tls, sub-* (bridge/git), and rubber-duck suites. The two `.js` suites (p1-write, p2-on-mention, +7) run via `node --test test/index.js`. Use Node's `--test` runner; no heavy framework. (Note: `node --test test/` with a bare dir under-discovers — use the `npm test` glob.)
 
 ## Working on treebird-chat
 

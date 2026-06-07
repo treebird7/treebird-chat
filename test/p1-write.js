@@ -90,3 +90,50 @@ test('corrwait --write keeps concurrent writes as complete lines', async () => {
     cleanup();
   }
 });
+
+test('corrwait --write emits a WROTE confirmation with verification status', async () => {
+  const { file, cleanup } = makeChatFixture();
+  try {
+    const result = await runWrite(file, 'testbot', 'hello');
+    assert.equal(result.code, 0);
+    const json = JSON.parse(result.stdout.trim());
+    assert.equal(json.reason, 'WROTE');
+    assert.equal(json.agent, 'testbot');
+    assert.equal(json.message, 'hello');
+    // --as identity is self-claimed → unverified
+    assert.equal(json.verified, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test('corrwait warns when --as is overridden by an env identity', async () => {
+  // ACL allows both names so we reach the write path and observe the warning,
+  // rather than bouncing on ACL first.
+  const dir = mkdtempSync(join(tmpdir(), 'corrwait-prec-'));
+  const file = join(dir, 'chat.md');
+  writeFileSync(file, '');
+  writeFileSync(`${file}.access.json`, JSON.stringify({
+    owner: 'treebird',
+    agents: { testbot: { allowed: true }, otherbot: { allowed: true } },
+  }) + '\n');
+  try {
+    const result = await new Promise((res, rej) => {
+      const child = spawn(process.execPath,
+        [CORRWAIT, file, '--as', 'testbot', '--write', 'hi'],
+        { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ENVOAK_AGENT_LABEL: 'otherbot-m5' } });
+      let stdout = '', stderr = '';
+      child.stdout.on('data', (c) => { stdout += c; });
+      child.stderr.on('data', (c) => { stderr += c; });
+      child.on('error', rej);
+      child.on('close', (code) => res({ code, stdout, stderr }));
+    });
+    assert.match(result.stderr, /--as testbot ignored/);
+    // env identity wins → line is authored by otherbot, and it's verified
+    const json = JSON.parse(result.stdout.trim());
+    assert.equal(json.agent, 'otherbot');
+    assert.equal(json.verified, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
