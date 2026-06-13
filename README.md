@@ -104,7 +104,7 @@ treebird-chat-session --name standup --invite cc1 --invite sasusan
 trbc join standup --as cc1
 ```
 
-`trbc join` resolves the smalltoak URL from `SMALLTOAK_URL` (or the envoak vault), the token from `~/.treebird-chat/.env`, and the file from the `chat-id → path` registration (`sessions.json`) — so a joiner lands on the **canonical file**, not an orphan `/tmp` mirror. It spawns a supervised bridge + `corrwait` loop (add `--tui` for the interactive UI, `--mention-only` for busy rooms).
+`trbc join` resolves the smalltoak URL from `SMALLTOAK_URL` (or the envoak vault), the token from `~/.treebird-chat/.env`, and the file from the `chat-id → path` registration (`sessions.json`) — so a joiner lands on the **canonical file**, not an orphan `/tmp` mirror. It spawns a supervised bridge + `corrwait` loop (add `--tui` for the interactive UI; mention-only is the default — pass `--all-traffic` to wake on every line).
 
 > **One sync layer per file.** A chat file should use the smalltoak **bridge** *or* a file-sync (git/Syncthing/NFS) — **never both on the same file**. Git's atomic-rename saves (`git pull`/`checkout`) desync a live bridge mid-session. `treebird-chat-bridge` warns when the file it's bridging lives inside a git repo.
 
@@ -279,8 +279,8 @@ Any OpenAI-compatible local server works (`ollama`, `llama.cpp`, `mlx_lm`, etc.)
 | `treebird-chat-init` (`trbc init`) | One-time: save `SMALLTOAK_URL` + `SMALLTOAK_TOKEN` to `~/.treebird-chat/.env` (0600). Relay config only — no identity. | Humans |
 | `treebird-chat-wizard` (`trbcw`) | Interactive 7-step session setup wizard. | Humans |
 | `treebird-chat-session [--name] [--invite] [--join]` | Non-interactive session creator. Registers `chat-id → file`. Starts gemma-bridge if gemma invited. | Humans / scripts |
-| `treebird-chat-join <chat-id> [--as] [--tui] [--mention-only]` (`trbc join`) | Join a registered session — auto-resolves relay + file from config. Spawns supervised bridge + corrwait. | Anyone |
-| `corrwait <file> [--as <agent>] [--end-word "/end"] [--timeout 540]` | Blocking poll. Exits on WAKE / END / TIMEOUT / REVOKED. | Agents |
+| `treebird-chat-join <chat-id> [--as] [--tui] [--all-traffic]` (`trbc join`) | Join a registered session — auto-resolves relay + file from config. Spawns supervised bridge + corrwait. Mention-only by default; `--all-traffic` opts out. | Anyone |
+| `corrwait <file> [--as <agent>] [--ack <ref>] [--end-word "/end"] [--timeout 540]` | Blocking poll. Exits on WAKE / END / TIMEOUT / REVOKED. `--ack <ref>` posts a "seen it" receipt + marks-as-read. | Agents |
 | `treebird-chat <file> [--as <agent>]` | Interactive chat TUI. Send + live receive. Shows last 30 lines of history on join. | Humans |
 | `treebird-chat-tail <file> [--from-start]` | Read-only colorized tail. | Anyone |
 | `treebird-chat-allow <file> <agent> [--owner <name>]` | Toggle agent ON. Creates sidecar if missing. | Owner |
@@ -332,7 +332,7 @@ The wizard-generated invite block includes the primary URL and lists any alterna
     # alt: http://192.168.1.179:3000
 ```
 
-Add `--mention-only` in busy multi-agent rooms — corrwait then wakes only on freeform lines that `@-mention` your agent (round headers and human comments still wake; that's intentional, they're external by definition).
+Mention-only is the default — corrwait wakes only on freeform lines that `@-mention` your agent (round headers and human comments still wake; that's intentional, they're external by definition). Pass `--all-traffic` to wake on every line, which you'll want in a small/quiet room.
 
 If the primary URL times out (TCP hangs, no connection refused), try the alt. To see all interfaces on the smalltoak host:
 

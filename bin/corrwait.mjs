@@ -38,11 +38,13 @@ const EXIT = { WAKE: 0, END: 1, TIMEOUT: 2, REVOKED: 3, ERROR: 4 };
 const USAGE = `corrwait — agent loop primitive: block until new chat content, or write/catch-up
 
 usage: corrwait <file> [--as <agent>] [--session <chat-id>]
-                 [--write <message>] [--catchup] [--on-mention]
+                 [--write <message>] [--ack <ref>] [--catchup] [--on-mention]
                  [--end-word "/end"] [--timeout 540]
 
   --as <agent>      identity when no ENVOAK_AGENT_LABEL/BIRDCHAT_AGENT is set (unverified)
   --write <message> append one line as this agent, print a WROTE confirmation, exit
+  --ack <ref>       post a one-line "seen it" receipt referencing <ref> and mark
+                    everything up to now as read (advances the cursor), then exit
   --catchup         non-blocking one-shot: emit all new content since cursor, exit
   --on-mention      only wake on lines that @mention this agent
   --raw             also emit newContent (raw new lines incl. self); default is
@@ -67,6 +69,8 @@ function parseArgs(argv) {
     onMention: false,
     write: null,
     writeMode: false,
+    ack: null,
+    ackMode: false,
     catchup: false,
     raw: false,
   };
@@ -83,6 +87,10 @@ function parseArgs(argv) {
       args.writeMode = true;
       args.write = argv[++i];
     }
+    else if (a === '--ack') {
+      args.ackMode = true;
+      args.ack = argv[++i];
+    }
     else if (!a.startsWith('--') && !args.file) args.file = a;
   }
   return args;
@@ -93,7 +101,7 @@ function emit(reason, payload = {}) {
 }
 
 async function main() {
-  const { file: rawFile, session, endWord, timeoutSec, as, onMention, write, writeMode: isWriteMode, catchup: isCatchup, raw } =
+  const { file: rawFile, session, endWord, timeoutSec, as, onMention, write, writeMode: isWriteMode, ack, ackMode: isAckMode, catchup: isCatchup, raw } =
     parseArgs(process.argv.slice(2));
 
   // --session <chat-id>: look up file path from session registry
@@ -117,8 +125,13 @@ async function main() {
     process.stderr.write('usage: corrwait <CORR_file> --write <message> [--as <agent>]\n');
     process.exit(EXIT.ERROR);
   }
-  if (isCatchup && isWriteMode) {
-    process.stderr.write('--catchup and --write are mutually exclusive\n');
+  if (isAckMode && (ack == null || String(ack).trim() === '')) {
+    process.stderr.write('usage: corrwait <CORR_file> --ack <ref> [--as <agent>]\n');
+    process.exit(EXIT.ERROR);
+  }
+  // --write / --ack / --catchup are three distinct one-shot modes.
+  if ([isWriteMode, isAckMode, isCatchup].filter(Boolean).length > 1) {
+    process.stderr.write('--write, --ack and --catchup are mutually exclusive\n');
     process.exit(EXIT.ERROR);
   }
 
@@ -166,6 +179,24 @@ async function main() {
     // Confirm the write landed — previously --write succeeded silently, leaving
     // no signal that the line was posted. Emit the author + verification status.
     emit('WROTE', { agent, verified, message });
+    process.exit(EXIT.WAKE);
+  }
+
+  // --ack <ref>: post a lightweight "seen it" receipt and mark everything up to
+  // now as read. Cheaper than a full reply when the right response is just "on
+  // it" — and unlike a bare --write it also advances the persisted cursor, so
+  // the next corrwait doesn't re-surface the content this ack acknowledges.
+  if (isAckMode) {
+    const ref = String(ack).replace(/[\r\n]/g, ' ').trim();
+    await appendLine(filePath, agent, `✓ ack ${ref}`);
+    try {
+      const lines = snapshot(filePath).lines;
+      const realLines = lines.length > 0 && lines[lines.length - 1] === ''
+        ? lines.length - 1
+        : lines.length;
+      writeCursor(filePath, agent, realLines);
+    } catch (e) { process.stderr.write(`[corrwait] writeCursor failed: ${e.message}\n`); }
+    emit('ACKED', { agent, verified, ref });
     process.exit(EXIT.WAKE);
   }
 
