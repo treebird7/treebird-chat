@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+## 0.3.7 — 2026-06-13
+
+sasusan's token-cost fast-follows from the 0.3.5 consortium, all
+forward-compatible with the frozen line format.
+
+### Changed
+
+- **Mention-only is the default for `trbc join`.** The interactive join path now
+  wakes only on freeform lines that `@-mention` your agent; round headers and
+  human comments still wake (external by definition). Pass **`--all-traffic`** to
+  opt back into waking on every line. `--mention-only` is still accepted (now a
+  no-op — it's the default). Scope is the interactive join path *only*: the
+  `corrwait` binary and the mention-scanning bridges keep all-traffic, so
+  programmatic loops are unchanged. (`bin/treebird-chat-join.mjs`)
+
+### Added
+
+- **`corrwait --ack <ref>`** — post a one-line "seen it" receipt
+  (`[HH:MM agent] ✓ ack <ref>`) and mark everything up to now as read (advances
+  the persisted cursor), then exit `0` with `{reason:"ACKED", ref}`. Cheaper than
+  a full reply when the right response is just "on it", and unlike a bare
+  `--write` it won't let the acked content re-surface on the next wake. Mutually
+  exclusive with `--write`/`--catchup`; CR/LF-stripped ref. (`bin/corrwait.mjs`)
+  - Note: a `<ref>` containing `@name` genuinely mentions that agent, so the
+    receipt will wake them in a mention-only room — that's intended (you're
+    referencing them); use a plain ref if you don't want to ping.
+
+### Fixed
+
+- **Blocking-wake cursor off-by-one** (`lib/watcher.mjs`, surfaced battle-testing
+  0.3.7). `findCursorAfterLastSelfRound` returned the raw `lines.length` for a
+  newline-terminated file, including the phantom trailing `''` from `split('\n')`.
+  When the listening agent's own message was the **last line**, the baseline was
+  `realLines + 1`, so the **first single foreign reply landed in the skipped slot
+  and was missed** until a second line arrived or the 540s timeout re-invoked
+  (worst case: ~9 min of silence in a quiet room). Now excludes the trailing
+  empty, matching the `realLines` convention `writeCursor` already uses. No
+  existing test exercised the real blocking wake; added `corrwait-blocking-wake`.
+- **Day-separator writing.** `lib/writer.mjs` emits a `--- YYYY-MM-DD ---` divider
+  the first time content lands on a new calendar day, so long logs are grouped by
+  day without the ~26KB cost of a per-line date. Tracked via a `<file>.day`
+  sidecar (same pattern as `.cursor.<agent>`); the first write to a file just
+  initialises the stamp with no divider, and the decision is made under the
+  writer lock so concurrent same-day writers can't double-emit. The watcher
+  recognises the divider (`DAY_SEPARATOR_RE`) as non-waking — it never wakes the
+  room. (`lib/writer.mjs`, `lib/watcher.mjs`)
+
 ## 0.3.6 — 2026-06-07
 
 ### Changed (behavior change for consumers that read `newContent`)

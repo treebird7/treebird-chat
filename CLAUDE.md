@@ -109,7 +109,7 @@ Foreign-author lines and human comments (`**💬 Human ...`) still wake normally
 - `[HH:MM agent] msg` flat format (preferred for new chats)
 - Any other non-blank, non-`---`, non-`*[awaiting]*` line as freeform
 
-**Flat format is FROZEN (cc1 + sasusan consortium, 2026-06-07)** — `FLAT_RE` groups are `1=date (YYYY-MM-DD, optional) · 2=time (HH:MM) · 3=agent · 4=instance (#N, optional, NO space) · 5=message`. Old dateless `[HH:MM agent] msg` lines still parse (date/instance absent). The same regex is the bridge wire format (`lib/message-codec.mjs`) and the obsidian-plugin parser — changing it breaks cross-tool parity, so `test/message-codec.test.mjs` pins `FLAT_RE.source`. Per-line dates are rare (use a day-separator, not a date per line — ~26KB bloat on a 2000-line log). Cursor self-detection (`watcher.mjs` per-agent regexes via `TS_PREFIX`) tolerates the optional date. **chat-id = `basename(file,'.md')`** (deterministic across machines — a slug-vs-filename split caused a cross-machine silence on 2026-06-07).
+**Flat format is FROZEN (cc1 + sasusan consortium, 2026-06-07)** — `FLAT_RE` groups are `1=date (YYYY-MM-DD, optional) · 2=time (HH:MM) · 3=agent · 4=instance (#N, optional, NO space) · 5=message`. Old dateless `[HH:MM agent] msg` lines still parse (date/instance absent). The same regex is the bridge wire format (`lib/message-codec.mjs`) and the obsidian-plugin parser — changing it breaks cross-tool parity, so `test/message-codec.test.mjs` pins `FLAT_RE.source`. Per-line dates are rare (use a day-separator, not a date per line — ~26KB bloat on a 2000-line log). As of 0.3.7 `lib/writer.mjs` writes that day-separator automatically — a `--- YYYY-MM-DD ---` divider on the first write of a new calendar day, tracked via a `<file>.day` sidecar; `DAY_SEPARATOR_RE` in `lib/watcher.mjs` marks it non-waking. Cursor self-detection (`watcher.mjs` per-agent regexes via `TS_PREFIX`) tolerates the optional date. **chat-id = `basename(file,'.md')`** (deterministic across machines — a slug-vs-filename split caused a cross-machine silence on 2026-06-07).
 
 The cursor logic handles round and flat; freeform doesn't have a cursor anchor (it's not yours unless you can prove it).
 
@@ -128,7 +128,7 @@ Short, focused. Prefix with module: `corrwait: filter self-wakes` or `lib/watche
 
 ### Tests
 
-`npm test` (= `node --test test/*.test.mjs`) — ~196 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, identity, corrwait (catchup/supervisor), bridge-errors, resolve-* (mirror/public-url/smalltoak-url), smalltoak-tls, sub-* (bridge/git), and rubber-duck suites. The two `.js` suites (p1-write, p2-on-mention, +7) run via `node --test test/index.js`. Use Node's `--test` runner; no heavy framework. (Note: `node --test test/` with a bare dir under-discovers — use the `npm test` glob.)
+`npm test` (= `node --test test/*.test.mjs`) — ~208 tests across bridge, watcher, wikilink, mention-scanner, markdown-archive, identity, corrwait (catchup/ack/supervisor), day-separator, bridge-errors, resolve-* (mirror/public-url/smalltoak-url), smalltoak-tls, sub-* (bridge/git), and rubber-duck suites. The two `.js` suites (p1-write, p2-on-mention, +7) run via `node --test test/index.js`. Use Node's `--test` runner; no heavy framework. (Note: `node --test test/` with a bare dir under-discovers — use the `npm test` glob.)
 
 ## Working on treebird-chat
 
@@ -205,5 +205,5 @@ Sub files are full chat files — they have their own ACL and corrwait loop. Age
 
 - No multi-machine bridge for the artisan-hub viewer (it watches `~/Dev/treebird-internal/collab/`, not `~/treebird-shared/collab/treebird-chat/` — symlinks break chokidar's change events on the viewer side)
 - Concurrent-write collisions on long messages (>4096 bytes can interleave) — practically rare but real. `lib/writer.mjs` enforces a per-line cap of 4000 chars: `appendLines` throws `MessageTooLongError` rather than silently truncating; callers (TUI, agents) surface a "split into shorter posts" message to the author.
-- No mentions / addressing — every message wakes every listening agent (planned: SPEC_notifications.md in the private birdchat repo)
+- Addressing is `@-mention` based and now default-on for `trbc join` (mention-only; `--all-traffic` opts out). `corrwait` itself still defaults to all-traffic (`--on-mention` opt-in) so bridges/programmatic loops are unchanged. Richer routing still planned: SPEC_notifications.md in the private birdchat repo
 - Sub-collabs are flat siblings (one level deep) — no recursive nesting

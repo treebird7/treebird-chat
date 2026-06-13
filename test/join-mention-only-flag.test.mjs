@@ -1,12 +1,15 @@
-// Regression tests for treebird-chat-join's --mention-only flag.
+// Regression tests for treebird-chat-join's mention filtering.
 //
-// Pre-PR: join always wired corrwait without --on-mention, so every
-// freeform line in a chat woke every joined agent. These tests assert
-// (a) the flag is documented in the usage line, (b) the source parses
-// and forwards it, and (c) supervise() forwards extraArgs to BOTH the
-// main runOnce and the catchup runOnce (regression for the bug where
-// --catchup hardcoded its extraArgs and silently dropped the caller's
-// filter on restart).
+// History: join originally wired corrwait without --on-mention, so every
+// freeform line woke every joined agent; --mention-only was added as an
+// opt-in. As of 0.3.7 (sasusan token-cost fast-follow) mention-only is the
+// DEFAULT for the interactive join path, with --all-traffic to opt back out.
+// These tests assert (a) the usage line advertises --all-traffic, (b) the
+// source defaults mentionOnly true and recognises --all-traffic, (c) it
+// forwards --on-mention to the supervised corrwait by default, and
+// (d) supervise() forwards extraArgs to BOTH the main runOnce and the catchup
+// runOnce (regression for the bug where --catchup hardcoded its extraArgs and
+// silently dropped the caller's filter on restart).
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,18 +23,20 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const JOIN_BIN = join(__dir, '..', 'bin', 'treebird-chat-join.mjs');
 const JOIN_SRC = readFileSync(JOIN_BIN, 'utf8');
 
-test('--mention-only appears in the usage line emitted on missing chatId', () => {
+test('--all-traffic appears in the usage line emitted on missing chatId', () => {
   const res = spawnSync('node', [JOIN_BIN], { encoding: 'utf8' });
   assert.equal(res.status, 1, 'should exit 1 without a chatId');
-  assert.match(res.stderr, /--mention-only/, 'usage line should advertise --mention-only');
+  assert.match(res.stderr, /--all-traffic/, 'usage line should advertise --all-traffic (mention-only is now the default)');
 });
 
-test('source parses --mention-only and forwards --on-mention to corrwait supervise', () => {
-  assert.match(JOIN_SRC, /argv\[i\] === '--mention-only'/, 'argv loop should recognise --mention-only');
+test('source defaults mentionOnly true, recognises --all-traffic, and forwards --on-mention', () => {
+  assert.match(JOIN_SRC, /mentionOnly = true/, 'mentionOnly must default to true (mention-only is the interactive default)');
+  assert.match(JOIN_SRC, /argv\[i\] === '--all-traffic'/, 'argv loop should recognise --all-traffic as the opt-out');
+  assert.match(JOIN_SRC, /argv\[i\] === '--mention-only'/, 'argv loop should still accept --mention-only for back-compat');
   assert.match(
     JOIN_SRC,
     /extraArgs\.push\(\s*['"]--on-mention['"]\s*\)/,
-    'when mentionOnly is set, --on-mention must be forwarded to the supervised corrwait'
+    'when mentionOnly is set (default), --on-mention must be forwarded to the supervised corrwait'
   );
 });
 
