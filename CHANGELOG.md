@@ -25,6 +25,21 @@ forward-compatible with the frozen line format.
   a full reply when the right response is just "on it", and unlike a bare
   `--write` it won't let the acked content re-surface on the next wake. Mutually
   exclusive with `--write`/`--catchup`; CR/LF-stripped ref. (`bin/corrwait.mjs`)
+  - Note: a `<ref>` containing `@name` genuinely mentions that agent, so the
+    receipt will wake them in a mention-only room — that's intended (you're
+    referencing them); use a plain ref if you don't want to ping.
+
+### Fixed
+
+- **Blocking-wake cursor off-by-one** (`lib/watcher.mjs`, surfaced battle-testing
+  0.3.7). `findCursorAfterLastSelfRound` returned the raw `lines.length` for a
+  newline-terminated file, including the phantom trailing `''` from `split('\n')`.
+  When the listening agent's own message was the **last line**, the baseline was
+  `realLines + 1`, so the **first single foreign reply landed in the skipped slot
+  and was missed** until a second line arrived or the 540s timeout re-invoked
+  (worst case: ~9 min of silence in a quiet room). Now excludes the trailing
+  empty, matching the `realLines` convention `writeCursor` already uses. No
+  existing test exercised the real blocking wake; added `corrwait-blocking-wake`.
 - **Day-separator writing.** `lib/writer.mjs` emits a `--- YYYY-MM-DD ---` divider
   the first time content lands on a new calendar day, so long logs are grouped by
   day without the ~26KB cost of a per-line date. Tracked via a `<file>.day`
