@@ -53,6 +53,30 @@ test('no env, envoak present but vault entry missing: returns null', () => {
   assert.equal(r.source, null);
 });
 
+test('loopback env on an envoak box is skipped (stale-local-env guard)', () => {
+  // The 2026-06-13 failure: m2's stale SMALLTOAK_SERVER_URL=localhost:3000
+  // silently beat the vault canonical URL. On an envoak box a loopback URL is
+  // almost always wrong for a cross-machine server — fall through to vault.
+  // No real vault entry here, so it lands in null/null (not the stale env).
+  for (const host of ['localhost', '127.0.0.1', '[::1]']) {
+    const r = resolveSmalltoakUrl({
+      env: { SMALLTOAK_SERVER_URL: `http://${host}:3000`, ENVOAK_AGENT_LABEL: 'test-agent' },
+      namespace: '__test-namespace-that-does-not-exist__',
+      key: '__test-key-that-does-not-exist__',
+    });
+    assert.equal(r.source, null, `loopback host ${host} must not win as env`);
+    assert.equal(r.url, null);
+  }
+});
+
+test('loopback env WITHOUT envoak still wins (vanilla local dev untouched)', () => {
+  // No ENVOAK_AGENT_LABEL → no vault to prefer, so localhost is the user's
+  // deliberate choice and must pass through.
+  const r = resolveSmalltoakUrl({ env: { SMALLTOAK_SERVER_URL: 'http://localhost:3000' } });
+  assert.equal(r.source, 'env');
+  assert.equal(r.url, 'http://localhost:3000');
+});
+
 test('env URL containing https:// passes through unchanged', () => {
   // No URL parsing or rewriting — the resolver is a pure lookup. The TLS
   // path is the caller's concern (treebird-chat-bridge handles it via
