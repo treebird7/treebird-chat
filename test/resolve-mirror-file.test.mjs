@@ -2,8 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveMirrorFile } from '../lib/config.mjs';
 
-// resolveMirrorFile is the join-side guard against the issue #6 nightjar bug:
-// a wizard-registered canopy file silently ignored because join hardcoded /tmp.
+// resolveMirrorFile is the join-side guard against the issue #6 nightjar bug
+// (a wizard-registered canopy file silently ignored because join hardcoded /tmp)
+// and tb-d21.1 (joiners get a deterministic mirror-store file, not a /tmp orphan).
+// Pure fn: same (chatId, registry) → same path, no disk writes. storeDir injects.
+
+const STORE = '/var/folders/test-store'; // isolated; never a real ~/.treebird-chat/rooms write
 
 test('returns registered filePath when chat-id is in sessions.json', () => {
   const sessions = {
@@ -12,50 +16,52 @@ test('returns registered filePath when chat-id is in sessions.json', () => {
       smalltoakUrl: 'http://192.168.100.1:3000',
     },
   };
-  const r = resolveMirrorFile('nightjar', { sessions });
+  const r = resolveMirrorFile('nightjar', { sessions, storeDir: STORE });
   assert.equal(r.mirrorFile, '/Users/x/Dev/treebird/canopy/CONSORTIUM_nightjar.md');
   assert.equal(r.source, 'registered');
-  assert.equal(r.warning, null);
+  assert.equal(r.note, null);
 });
 
-test('falls back to /tmp when chat-id is not registered', () => {
-  const r = resolveMirrorFile('ad-hoc-room', { sessions: {} });
-  assert.equal(r.mirrorFile, '/tmp/ad-hoc-room.md');
-  assert.equal(r.source, 'tmp');
-  assert.ok(r.warning, 'tmp fallback must emit a warning so the orphan is visible');
-  assert.match(r.warning, /not registered/);
-  assert.match(r.warning, /ad-hoc-room/);
+test('falls back to the mirror store when chat-id is not registered', () => {
+  const r = resolveMirrorFile('ad-hoc-room', { sessions: {}, storeDir: STORE });
+  assert.equal(r.mirrorFile, `${STORE}/ad-hoc-room.md`);
+  assert.equal(r.source, 'local');
+  assert.equal(r.note, 'mirror; not host canonical');
 });
 
-test('falls back to /tmp when sessions has the chat-id but no filePath', () => {
+test('falls back to the store when sessions has the chat-id but no filePath', () => {
   // Could happen if the wizard partially-wrote the entry or a hand-edit dropped
-  // the field. Treat it as unregistered (the join can't do anything useful with
-  // a chat-id whose canonical path is missing).
+  // the field. Treat it as a local joiner (the join can't do anything useful
+  // with a chat-id whose canonical path is missing).
   const sessions = { partial: { smalltoakUrl: 'http://h:3000' /* no filePath */ } };
-  const r = resolveMirrorFile('partial', { sessions });
-  assert.equal(r.source, 'tmp');
-  assert.equal(r.mirrorFile, '/tmp/partial.md');
+  const r = resolveMirrorFile('partial', { sessions, storeDir: STORE });
+  assert.equal(r.source, 'local');
+  assert.equal(r.mirrorFile, `${STORE}/partial.md`);
 });
 
-test('respects injected tmpDir (test isolation, no real /tmp writes)', () => {
-  const r = resolveMirrorFile('unreg', { sessions: {}, tmpDir: '/var/folders/test' });
-  assert.equal(r.mirrorFile, '/var/folders/test/unreg.md');
-  assert.equal(r.source, 'tmp');
+test('deterministic: same inputs → same path (pure fn, no writes)', () => {
+  const a = resolveMirrorFile('repeatable', { sessions: {}, storeDir: STORE });
+  const b = resolveMirrorFile('repeatable', { sessions: {}, storeDir: STORE });
+  assert.deepEqual(a, b);
 });
 
-test('registered entry wins over a same-name file in /tmp', () => {
-  // Regression: the original bug was "join uses /tmp even though sessions.json
-  // had a different filePath". Verify registered takes priority unconditionally.
-  const sessions = {
-    nightjar: { filePath: '/canonical/path.md' },
-  };
-  const r = resolveMirrorFile('nightjar', { sessions });
+test('registered entry wins over a same-name file in the store', () => {
+  // Regression: the original bug was "join uses the orphan even though
+  // sessions.json had a different filePath". Registered takes priority.
+  const sessions = { nightjar: { filePath: '/canonical/path.md' } };
+  const r = resolveMirrorFile('nightjar', { sessions, storeDir: STORE });
   assert.equal(r.mirrorFile, '/canonical/path.md');
-  assert.notEqual(r.mirrorFile, '/tmp/nightjar.md');
+  assert.notEqual(r.mirrorFile, `${STORE}/nightjar.md`);
 });
 
-test('warning text names the fix path (treebird-chat-wizard)', () => {
-  // The warning is operator-facing; it must point at the fix, not just complain.
-  const r = resolveMirrorFile('x', { sessions: {} });
-  assert.match(r.warning, /treebird-chat-wizard/);
+test('rejects an unsafe chatId before it reaches the filesystem', () => {
+  // chatId is invite-sourced (crosses a machine boundary). Basic trust-boundary
+  // guard; sherlock's tb-d21.2 adds the adversarial pass.
+  for (const bad of ['../escape', 'a/b', '..', '.', 'has space', 'x\0y']) {
+    assert.throws(
+      () => resolveMirrorFile(bad, { sessions: {}, storeDir: STORE }),
+      /unsafe chatId/,
+      `should reject ${JSON.stringify(bad)}`,
+    );
+  }
 });
