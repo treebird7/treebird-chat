@@ -131,12 +131,12 @@ if (!token) {
   process.exit(1);
 }
 
-// Closes issue #6 P2. Previously this was hardcoded to /tmp/<chatId>.md,
-// which silently orphaned every joiner from the canonical canopy file the
-// wizard registered. Now we honour sessions.json; /tmp remains the fallback
-// for remote invites where the joiner has no local registration.
-const { mirrorFile, source: mirrorSource, warning: mirrorWarning } = resolveMirrorFile(chatId);
-if (mirrorWarning) process.stderr.write(`[join] WARN: ${mirrorWarning}\n`);
+// Closes issue #6 P2 + tb-d21.1. A registered chat-id honours its canonical
+// sessions.json filePath; a joiner (no local registration) resolves to a
+// deterministic file in the mirror store (~/.treebird-chat/rooms/), not a
+// reboot-wiped /tmp orphan.
+const { mirrorFile, source: mirrorSource, note: mirrorNote } = resolveMirrorFile(chatId);
+if (mirrorNote) process.stderr.write(`[join] note: ${mirrorNote}\n`);
 if (!existsSync(mirrorFile)) {
   // Registered file may not exist locally yet (just-created sub, fresh clone).
   // Touch it so corrwait/chokidar can attach; the bridge populates from smalltoak.
