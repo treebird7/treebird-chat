@@ -17,7 +17,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { loadEnv, listSessions } from '../lib/config.mjs';
+import { loadEnv, listSessions, MIRROR_STORE_DIR } from '../lib/config.mjs';
 
 loadEnv();
 
@@ -83,7 +83,16 @@ function main() {
     process.stderr.write(`unknown chat-id: ${filter}\n`);
     process.exit(2);
   }
-  if (ids.length === 0) {
+  // Mirror rooms: *.md in the mirror store (d21.1 joiner mirrors). They are
+  // 'local' source — not in sessions.json by design — so a pure joiner has none
+  // here. List them separately (d21.3) instead of exiting "no sessions".
+  let mirrorRooms = [];
+  if (!filter && existsSync(MIRROR_STORE_DIR)) {
+    try { mirrorRooms = readdirSync(MIRROR_STORE_DIR).filter((f) => f.endsWith('.md')); }
+    catch { /* */ }
+  }
+
+  if (ids.length === 0 && mirrorRooms.length === 0) {
     process.stderr.write('no sessions registered. Run `treebird-chat-wizard` to register one.\n');
     process.exit(2);
   }
@@ -124,6 +133,18 @@ function main() {
         const meta = [pid, age.slice(2)].filter(Boolean).join(', ');
         process.stdout.write(`${id}\n  ${tag(live.state)}  ${meta}\n\n`);
       }
+    }
+  }
+
+  if (mirrorRooms.length) {
+    process.stdout.write('── mirror rooms (joined, not hosted — ~/.treebird-chat/rooms/) ──\n');
+    for (const f of mirrorRooms) {
+      const id = f.replace(/\.md$/, '');
+      const live = bridgeLiveness(id);
+      const pid = live.pid ? `pid ${live.pid}` : '';
+      const age = live.age != null ? `, lock ${formatAge(live.age)} old` : '';
+      const meta = [pid, age.slice(2)].filter(Boolean).join(', ');
+      process.stdout.write(`${id}  ⬡ mirror\n  ${tag(live.state)}  ${meta}\n  file=${join(MIRROR_STORE_DIR, f)}\n\n`);
     }
   }
 
