@@ -19,7 +19,7 @@ import chokidar from 'chokidar';
 import { verifyAgentIdentity, isValidAgentName } from '../lib/identity.mjs';
 import { isAllowed, readAcl, aclPath, setAllowed } from '../lib/access.mjs';
 import { FLAT_RE } from '../lib/watcher.mjs';
-import { findSessionByPath, resolvePublicUrl } from '../lib/config.mjs';
+import { findSessionByPath, resolvePublicUrl, isMirrorFile } from '../lib/config.mjs';
 import { resolveLink, parseLinks } from '../lib/wikilink.mjs';
 import { readSubs, addSub, closeSubInParent } from '../lib/subs.mjs';
 import { readInviterCert, composeRemoteInvite, composeLocalInvite } from '../lib/invite-block.mjs';
@@ -106,7 +106,11 @@ if (!isAllowed(filePath, agent)) {
 }
 
 const myColor = colorFor(agent);
-process.stdout.write(`${BOLD}treebird-chat${RESET} — ${myColor}${agent}${RESET} on ${DIM}${file}${RESET}\n`);
+const YELLOW = '\x1b[33m';
+const roomBadge = isMirrorFile(file)
+  ? `  ${YELLOW}⬡ mirror${RESET}${DIM} (not host canonical)${RESET}`
+  : `  ${DIM}⬡ canonical${RESET}`;
+process.stdout.write(`${BOLD}treebird-chat${RESET} — ${myColor}${agent}${RESET} on ${DIM}${file}${RESET}${roomBadge}\n`);
 process.stdout.write(`${DIM}Enter to send · \\n for newline (max ${MAX_LINES} lines) · /sub <topic> · /subs · /preview <target> · /open <target> · /invite <agent> · /end${RESET}\n\n`);
 
 // ── tail (incoming) ────────────────────────────────────────────────────
