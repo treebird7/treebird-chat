@@ -2,16 +2,7 @@
   "branches": {
     "main": {
       "name": "main",
-      "files": [
-        "FUTURE.md",
-        "bin/treebird-chat-watch.mjs",
-        "hooks/treebird-chat-notify.sh",
-        "lib/mention-scanner.mjs",
-        "lib/watchlist.mjs",
-        "package.json",
-        "test/index.js",
-        "test/mention-scanner.test.mjs"
-      ],
+      "files": [],
       "status": "active",
       "registeredAt": "2026-05-04T07:00:15.938Z"
     },
