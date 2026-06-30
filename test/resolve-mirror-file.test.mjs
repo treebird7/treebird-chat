@@ -65,3 +65,63 @@ test('rejects an unsafe chatId before it reaches the filesystem', () => {
     );
   }
 });
+
+// ── tb-d21.2 adversarial trust-boundary pass ──────────────────────────────────
+// chatId is invite-sourced and crosses a machine boundary before it becomes a
+// path segment. An attacker who controls the chatId must not be able to make
+// the mirror file land outside ~/.treebird-chat/rooms/. The guard is an
+// allowlist, so the proof is "everything outside [A-Za-z0-9._-] is rejected".
+
+test('tb-d21.2: rejects every escape/injection vector', () => {
+  const attacks = [
+    // path traversal — various encodings/depths
+    '../../etc/passwd', '....//....//etc', 'a/../../b', './../x',
+    // absolute paths (resolve() would otherwise honor a leading /)
+    '/etc/passwd', '/', '//etc',
+    // separators (POSIX + Windows)
+    'a/b', 'a\\b', 'a\\..\\b',
+    // null byte + control chars (C truncation / log injection)
+    'x\0y', 'a\nb', 'a\tb', 'a\rb',
+    // unicode lookalikes for / and . (NOT in the ASCII allowlist)
+    'a／b',   // ／ fullwidth solidus
+    'a∕b',   // ∕ division slash
+    'a․b',   // ․ one-dot leader (looks like .)
+    'a．b',   // ． fullwidth full stop
+    // dot-only segments (dot IS in the charset → must be excluded explicitly)
+    '.', '..',
+    // whitespace / empty
+    '', ' ', '   ', 'has space', '\t',
+    // length DoS
+    'x'.repeat(129),
+    // non-string types
+    null, undefined, 42, {}, [], true, Symbol('s'),
+  ];
+  for (const bad of attacks) {
+    assert.throws(
+      () => resolveMirrorFile(bad, { sessions: {}, storeDir: STORE }),
+      /unsafe chatId/,
+      `should reject ${typeof bad === 'symbol' ? 'Symbol' : JSON.stringify(bad)}`,
+    );
+  }
+});
+
+test('tb-d21.2: containment holds — every accepted chatId stays inside storeDir', () => {
+  for (const ok of ['room', 'tb-d21.2', 'a.b.c', 'UPPER_lower-1', '...', 'x'.repeat(128)]) {
+    const { mirrorFile } = resolveMirrorFile(ok, { sessions: {}, storeDir: STORE });
+    assert.ok(
+      mirrorFile.startsWith(`${STORE}/`),
+      `${JSON.stringify(ok)} → ${mirrorFile} escaped ${STORE}`,
+    );
+    assert.equal(mirrorFile, `${STORE}/${ok}.md`);
+  }
+});
+
+test('tb-d21.2: a registered (host-canonical) entry bypasses the segment guard', () => {
+  // resolveMirrorFile only validates chatId on the *local mirror* branch. A
+  // registered chat-id maps to its own canonical filePath and is trusted — the
+  // guard must not break legitimately-registered ids that contain a slash path.
+  const sessions = { 'weird/registered': { filePath: '/canonical/ok.md' } };
+  const r = resolveMirrorFile('weird/registered', { sessions, storeDir: STORE });
+  assert.equal(r.source, 'registered');
+  assert.equal(r.mirrorFile, '/canonical/ok.md');
+});

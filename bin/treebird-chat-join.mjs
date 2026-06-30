@@ -140,8 +140,13 @@ if (mirrorNote) process.stderr.write(`[join] note: ${mirrorNote}\n`);
 if (!existsSync(mirrorFile)) {
   // Registered file may not exist locally yet (just-created sub, fresh clone).
   // Touch it so corrwait/chokidar can attach; the bridge populates from smalltoak.
-  mkdirSync(dirname(mirrorFile), { recursive: true });
-  writeFileSync(mirrorFile, '');
+  // tb-d21.2: the mirror store holds chat content — lock it down like its
+  // sibling locks/ (0700 dir, 0600 file). mode only applies on create, so
+  // re-assert chmod for a pre-existing looser dir.
+  const mirrorDir = dirname(mirrorFile);
+  mkdirSync(mirrorDir, { recursive: true, mode: 0o700 });
+  try { chmodSync(mirrorDir, 0o700); } catch { /* not fatal */ }
+  writeFileSync(mirrorFile, '', { mode: 0o600 });
 }
 
 // local ACL (pre-T10; bridge is the real gate post-T10)
