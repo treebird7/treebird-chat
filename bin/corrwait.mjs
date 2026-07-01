@@ -20,7 +20,8 @@ import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import chokidar from 'chokidar';
 import { verifyAgentIdentity, parseLabel } from '../lib/identity.mjs';
-import { isAllowed, readAcl, aclPath, readCursor, writeCursor } from '../lib/access.mjs';
+import { isAllowed, readAcl, aclPath, readCursor, writeCursor, isApprovedUnverified, setApprovedUnverified } from '../lib/access.mjs';
+import { runApproveHook } from '../lib/approve-hook.mjs';
 import { appendLine } from '../lib/writer.mjs';
 import { loadEnv, loadSession } from '../lib/config.mjs';
 import {
@@ -148,7 +149,14 @@ async function main() {
     process.stderr.write(`Identity check failed: ${e.message}\n`);
     process.exit(EXIT.ERROR);
   }
-  const { agent, verified } = identity;
+  const { agent, verified, instance } = identity;
+  // Display/self-detection name for a second+ concurrent instance of the same
+  // base agent (SPEC_identity-verification §2), e.g. `sherlock#2`. ACL grants
+  // and the cursor's agent-key stay on the base `agent` (by-base is the
+  // recommended granularity — one allow admits every instance); only the
+  // written line and self-wake filtering need to be instance-specific, or
+  // instance 2 would treat instance 1's lines as its own and vice versa.
+  const displayName = instance ? `${agent}#${instance}` : agent;
 
   // Identity-precedence footgun: --as is the lowest-priority source, so a
   // leftover ENVOAK_AGENT_LABEL / BIRDCHAT_AGENT silently wins and the agent
@@ -173,12 +181,27 @@ async function main() {
     process.exit(EXIT.REVOKED);
   }
 
+  // SPEC_identity-verification §3: soft approval gate for unverified (--as /
+  // BIRDCHAT_AGENT) identities. Runs once per name — a prior approval is
+  // persisted on the ACL entry, so this is a cheap ACL-read on every
+  // subsequent invocation once approved. Absent TREEBIRD_CHAT_APPROVE_HOOK,
+  // runApproveHook default-allows with no subprocess call — this is a no-op
+  // for the vast majority of sessions that never set the hook.
+  if (!verified && !isApprovedUnverified(filePath, agent)) {
+    const approval = runApproveHook({ file: filePath, agent, source: identity.source });
+    if (!approval.approved) {
+      emit('UNAPPROVED', { agent, instance, source: identity.source, message: approval.message });
+      process.exit(EXIT.REVOKED);
+    }
+    setApprovedUnverified(filePath, agent, true);
+  }
+
   if (isWriteMode) {
     const message = write.replace(/[\r\n]/g, ' ');
-    await appendLine(filePath, agent, message);
+    await appendLine(filePath, displayName, message, { verified });
     // Confirm the write landed — previously --write succeeded silently, leaving
     // no signal that the line was posted. Emit the author + verification status.
-    emit('WROTE', { agent, verified, message });
+    emit('WROTE', { agent, instance, verified, message });
     process.exit(EXIT.WAKE);
   }
 
@@ -188,15 +211,15 @@ async function main() {
   // the next corrwait doesn't re-surface the content this ack acknowledges.
   if (isAckMode) {
     const ref = String(ack).replace(/[\r\n]/g, ' ').trim();
-    await appendLine(filePath, agent, `✓ ack ${ref}`);
+    await appendLine(filePath, displayName, `✓ ack ${ref}`, { verified });
     try {
       const lines = snapshot(filePath).lines;
       const realLines = lines.length > 0 && lines[lines.length - 1] === ''
         ? lines.length - 1
         : lines.length;
-      writeCursor(filePath, agent, realLines);
+      writeCursor(filePath, agent, realLines, instance);
     } catch (e) { process.stderr.write(`[corrwait] writeCursor failed: ${e.message}\n`); }
-    emit('ACKED', { agent, verified, ref });
+    emit('ACKED', { agent, instance, verified, ref });
     process.exit(EXIT.WAKE);
   }
 
@@ -208,8 +231,8 @@ async function main() {
   // Baseline = max(implicit cursor from agent's last self-message,
   // persisted cursor from prior WAKE). Persisted cursor advances even when
   // the agent chooses to stay quiet, so the same content isn't replayed.
-  const implicit = snapshotAtCursor(filePath, agent);
-  const persisted = readCursor(filePath, agent);
+  const implicit = snapshotAtCursor(filePath, displayName);
+  const persisted = readCursor(filePath, agent, instance);
   const baseline = persisted > implicit.lines.length
     ? { length: 0, lines: snapshot(filePath).lines.slice(0, persisted) }
     : implicit;
@@ -217,16 +240,17 @@ async function main() {
   // --catchup: non-blocking one-shot read. Advance cursor, emit CATCHUP, exit.
   if (isCatchup) {
     const mentionTarget = onMention ? agent : null;
-    const diff = diffSinceBaseline(filePath, baseline, endWord, agent, mentionTarget);
+    const diff = diffSinceBaseline(filePath, baseline, endWord, displayName, mentionTarget);
     try {
       const lines = snapshot(filePath).lines;
       const realLines = lines.length > 0 && lines[lines.length - 1] === ''
         ? lines.length - 1
         : lines.length;
-      writeCursor(filePath, agent, realLines);
+      writeCursor(filePath, agent, realLines, instance);
     } catch (e) { process.stderr.write(`[corrwait] writeCursor failed: ${e.message}\n`); }
     emit('CATCHUP', {
       agent,
+      instance,
       verified,
       wakeLines: diff.wakeLines,
       ...(raw ? { newContent: diff.newLines.join('\n') } : {}),
@@ -254,10 +278,10 @@ async function main() {
         const realLines = lines.length > 0 && lines[lines.length - 1] === ''
           ? lines.length - 1
           : lines.length;
-        writeCursor(filePath, agent, realLines);
+        writeCursor(filePath, agent, realLines, instance);
       } catch (e) { process.stderr.write(`[corrwait] writeCursor failed: ${e.message}\n`); }
     }
-    emit(reason, { agent, verified, ...payload });
+    emit(reason, { agent, instance, verified, ...payload });
     if (watcher) {
       watcher.close().finally(() => process.exit(code));
     } else {
@@ -269,7 +293,7 @@ async function main() {
   // Pass `agent` so self-authored lines never trigger wake (filters self-noise
   // when a stale corrwait was running while this agent appended).
   const mentionTarget = onMention ? agent : null;
-  const initial = diffSinceBaseline(filePath, baseline, endWord, agent, mentionTarget);
+  const initial = diffSinceBaseline(filePath, baseline, endWord, displayName, mentionTarget);
   if (initial.endViaWord) {
     return finish(EXIT.END, 'END', {
       source: 'end-word',
@@ -316,7 +340,7 @@ async function main() {
       return finish(EXIT.END, 'END', { source: 'sidecar' });
     }
 
-    const diff = diffSinceBaseline(filePath, baseline, endWord, agent, mentionTarget);
+    const diff = diffSinceBaseline(filePath, baseline, endWord, displayName, mentionTarget);
 
     if (diff.endViaWord) {
       clearTimeout(timer);

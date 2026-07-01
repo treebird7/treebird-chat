@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { diffSinceBaseline, FLAT_RE, findCursorAfterLastSelfRound } from '../lib/watcher.mjs';
+import { diffSinceBaseline, FLAT_RE, findCursorAfterLastSelfRound, stripUnverifiedMarker, UNVERIFIED_MARKER } from '../lib/watcher.mjs';
 
 function fixture(content) {
   const dir = mkdtempSync(join(tmpdir(), 'watcher-test-'));
@@ -25,6 +25,52 @@ test('self flat line is filtered when agent is provided', () => {
     assert.equal(diff.wakeLines.length, 0);
     assert.equal(diff.hasNewFreeform, false);
   } finally { cleanup(); }
+});
+
+test('SPEC §2: an instance-qualified self name (agent#N) only filters its own lines', () => {
+  const { file, cleanup } = fixture('[12:00 sherlock#1] instance 1 spoke\n');
+  try {
+    // corrwait for instance #2 passes 'sherlock#2' as the self-filter name —
+    // instance 1's line must NOT be treated as self (or instance 2 would miss it).
+    const diff = diffSinceBaseline(file, emptyBaseline, '/end', 'sherlock#2');
+    assert.equal(diff.woke, true);
+    assert.equal(diff.wakeLines.length, 1);
+  } finally { cleanup(); }
+});
+
+test('SPEC §2: instance 2 own line is filtered as self', () => {
+  const { file, cleanup } = fixture('[12:00 sherlock#2] my own line\n');
+  try {
+    const diff = diffSinceBaseline(file, emptyBaseline, '/end', 'sherlock#2');
+    assert.equal(diff.woke, false);
+  } finally { cleanup(); }
+});
+
+test('SPEC §2: @sherlock still pings an instance (agent#N), not just the bare name', () => {
+  const { file, cleanup } = fixture('[12:00 alice] @@sherlock please look\n');
+  try {
+    const diff = diffSinceBaseline(file, emptyBaseline, '/end', 'sherlock#2');
+    assert.equal(diff.priority, 'high');
+  } finally { cleanup(); }
+});
+
+test('stripUnverifiedMarker strips the trailing marker and flags unverified', () => {
+  const { text, unverified } = stripUnverifiedMarker(`hello${UNVERIFIED_MARKER}`);
+  assert.equal(text, 'hello');
+  assert.equal(unverified, true);
+});
+
+test('stripUnverifiedMarker leaves a plain message untouched', () => {
+  const { text, unverified } = stripUnverifiedMarker('hello');
+  assert.equal(text, 'hello');
+  assert.equal(unverified, false);
+});
+
+test('FLAT_RE still parses an unverified-marked line (no prefix change)', () => {
+  const m = `[12:00 cc2] hi there${UNVERIFIED_MARKER}`.match(FLAT_RE);
+  assert.ok(m);
+  assert.equal(m[3].trim(), 'cc2');
+  assert.equal(stripUnverifiedMarker(m[5]).unverified, true);
 });
 
 test('self flat line still wakes when no agent is passed (back-compat)', () => {

@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { existsSync, statSync, readFileSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import chokidar from 'chokidar';
-import { FLAT_RE } from '../lib/watcher.mjs';
+import { FLAT_RE, stripUnverifiedMarker } from '../lib/watcher.mjs';
 
 const args = process.argv.slice(2);
 const file = args.find((a) => !a.startsWith('--'));
@@ -37,11 +37,13 @@ function colorFor(author) {
 function printLine(line) {
   const m = line.match(FLAT_RE);
   if (m) {
-    const [, date, time, authorRaw, instance, msg] = m;  // date, time, agent, instance, msg
+    const [, date, time, authorRaw, instance, rawMsg] = m;  // date, time, agent, instance, msg
     const author = authorRaw.trim() + (instance ? `#${instance}` : '');
+    const { text: msg, unverified } = stripUnverifiedMarker(rawMsg);
     const ts = date ? `${date} ${time}` : time;
-    const c = colorFor(author);
-    process.stdout.write(`${DIM}${ts}${RESET} ${c}${author}${RESET} ${msg}\n`);
+    const c = unverified ? DIM : colorFor(author);
+    const authorLabel = unverified ? `${author} ?` : author;
+    process.stdout.write(`${DIM}${ts}${RESET} ${c}${authorLabel}${RESET} ${msg}\n`);
   } else if (line.trim()) {
     // Non-flat content (round headers, separators, freeform) — show dim.
     process.stdout.write(`${DIM}${line}${RESET}\n`);

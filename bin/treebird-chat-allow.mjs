@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { ensureAcl, setAllowed, aclPath } from '../lib/access.mjs';
 import { isValidAgentName } from '../lib/identity.mjs';
+import { requireEnvoakUnlock } from '../lib/envoak-gate.mjs';
 
 function parseArgs(argv) {
   const args = { file: null, agent: null, owner: 'treebird' };
@@ -33,6 +34,12 @@ if (!isValidAgentName(agent)) {
 const filePath = resolve(file);
 if (!existsSync(filePath)) {
   process.stderr.write(`File not found: ${filePath}\n`);
+  process.exit(1);
+}
+
+const gate = await requireEnvoakUnlock({ action: 'treebird-chat-allow' });
+if (!gate.ok) {
+  process.stderr.write(`${gate.message}\n`);
   process.exit(1);
 }
 

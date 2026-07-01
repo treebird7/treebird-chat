@@ -151,6 +151,44 @@ test('/ts-review#1 ensureAcl writes the .access.json with mode 0o600', () => {
   }
 });
 
+test('cursorPath/readCursor/writeCursor are instance-scoped (SPEC_identity-verification §2)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rd-cursor-instance-'));
+  try {
+    const chat = join(dir, 'chat.md');
+    writeFileSync(chat, '');
+    const { readCursor, writeCursor, cursorPath } = await import('../lib/access.mjs');
+    writeCursor(chat, 'sherlock', 10, 1);
+    writeCursor(chat, 'sherlock', 20, 2);
+    assert.equal(readCursor(chat, 'sherlock', 1), 10, 'instance 1 keeps its own cursor');
+    assert.equal(readCursor(chat, 'sherlock', 2), 20, 'instance 2 keeps its own cursor');
+    assert.notEqual(cursorPath(chat, 'sherlock', 1), cursorPath(chat, 'sherlock', 2));
+    // No-instance callers are unaffected (back-compat).
+    writeCursor(chat, 'sherlock', 30);
+    assert.equal(readCursor(chat, 'sherlock'), 30);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('isApprovedUnverified/setApprovedUnverified round-trip (SPEC_identity-verification §3)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rd-approve-'));
+  try {
+    const chat = join(dir, 'chat.md');
+    writeFileSync(chat, '');
+    const { isApprovedUnverified, setApprovedUnverified, setAllowed, readAcl } = await import('../lib/access.mjs');
+    assert.equal(isApprovedUnverified(chat, 'cc2'), false, 'not approved by default');
+    setAllowed(chat, 'cc2', true);
+    setApprovedUnverified(chat, 'cc2', true);
+    assert.equal(isApprovedUnverified(chat, 'cc2'), true);
+    assert.equal(readAcl(chat).agents.cc2.allowed, true, 'approval does not touch ACL membership');
+    setApprovedUnverified(chat, 'cc2', false);
+    assert.equal(isApprovedUnverified(chat, 'cc2'), false, 'revocable');
+    assert.equal(readAcl(chat).agents.cc2.allowed, true, 'revoking approval does not revoke ACL membership');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('/ts-review#1 cursor file is written 0o600', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'rd-cursor-mode-'));
   try {

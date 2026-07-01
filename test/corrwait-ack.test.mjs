@@ -41,7 +41,9 @@ test('--ack posts a receipt line, emits ACKED, and exits 0', () => {
     assert.equal(json.ref, 'merge');
     assert.equal(json.agent, AGENT);
     const body = readFileSync(file, 'utf8');
-    assert.match(body, /\[\d{2}:\d{2} testbot\] ✓ ack merge\n$/, 'receipt line should be appended in flat format');
+    // --as identity is unverified (SPEC_identity-verification §1), so the
+    // receipt carries the trailing marker.
+    assert.match(body, /\[\d{2}:\d{2} testbot\] ✓ ack merge ⟨unverified⟩\n$/, 'receipt line should be appended in flat format');
   } finally { cleanup(); }
 });
 
@@ -85,6 +87,6 @@ test('--ack receipt carries CR/LF-stripped ref (no line injection)', () => {
     run(file, ['--ack', 'line1\nline2']);
     const body = readFileSync(file, 'utf8').trimEnd();
     assert.equal(body.split('\n').length, 1, 'a newline in the ref must not split into two lines');
-    assert.match(body, /✓ ack line1 line2$/);
+    assert.match(body, /✓ ack line1 line2 ⟨unverified⟩$/);
   } finally { cleanup(); }
 });

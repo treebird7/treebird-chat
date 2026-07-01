@@ -17,8 +17,9 @@ import { open } from 'node:fs/promises';
 import readline from 'node:readline';
 import chokidar from 'chokidar';
 import { verifyAgentIdentity, isValidAgentName } from '../lib/identity.mjs';
-import { isAllowed, readAcl, aclPath, setAllowed } from '../lib/access.mjs';
-import { FLAT_RE } from '../lib/watcher.mjs';
+import { isAllowed, readAcl, aclPath, setAllowed, isApprovedUnverified, setApprovedUnverified } from '../lib/access.mjs';
+import { runApproveHook } from '../lib/approve-hook.mjs';
+import { FLAT_RE, stripUnverifiedMarker } from '../lib/watcher.mjs';
 import { findSessionByPath, resolvePublicUrl, isMirrorFile } from '../lib/config.mjs';
 import { resolveLink, parseLinks } from '../lib/wikilink.mjs';
 import { readSubs, addSub, closeSubInParent } from '../lib/subs.mjs';
@@ -94,7 +95,13 @@ if (!existsSync(filePath)) {
 let identity;
 try { identity = verifyAgentIdentity(asArg); }
 catch (e) { process.stderr.write(`Identity check failed: ${e.message}\n`); process.exit(1); }
-const { agent } = identity;
+const { agent, verified, instance } = identity;
+// Instance-qualified display/self-echo name (SPEC_identity-verification §2),
+// e.g. `sherlock#2` for the 2nd concurrent `sherlock`. ACL checks stay on the
+// base `agent` (by-base grant); writes and self-echo suppression need the
+// full name so a second instance doesn't mistake the first instance's lines
+// for its own.
+const displayName = instance ? `${agent}#${instance}` : agent;
 
 if (!readAcl(filePath)) {
   process.stderr.write(`No ACL at ${aclPath(filePath)}. Owner: treebird-chat-allow ${file} ${agent}\n`);
@@ -103,6 +110,17 @@ if (!readAcl(filePath)) {
 if (!isAllowed(filePath, agent)) {
   process.stderr.write(`Agent "${agent}" not allowed on ${file}.\n`);
   process.exit(1);
+}
+
+// SPEC_identity-verification §3: soft approval gate for unverified identities
+// (see corrwait.mjs for the fuller comment — same once-per-name persistence).
+if (!verified && !isApprovedUnverified(filePath, agent)) {
+  const approval = runApproveHook({ file: filePath, agent, source: identity.source });
+  if (!approval.approved) {
+    process.stderr.write(`${approval.message || `"${agent}" was not approved to join.`}\n`);
+    process.exit(1);
+  }
+  setApprovedUnverified(filePath, agent, true);
 }
 
 const myColor = colorFor(agent);
@@ -119,6 +137,12 @@ let pump = Promise.resolve();
 
 let lastAuthor = null;
 
+// SPEC_identity-verification §3 owner UX: warn once per session (not once
+// per message) when an unverified author who hasn't been approved posts.
+// Seeded from history so a re-join doesn't re-warn about names already seen
+// before this session started.
+const warnedUnverified = new Set();
+
 // Print the last N protocol lines as history before entering tail mode.
 {
   const HISTORY_LINES = 30;
@@ -131,16 +155,19 @@ let lastAuthor = null;
       for (const line of recent) {
         const m = line.match(FLAT_RE);
         if (!m) continue;
-        const [, , time, authorRaw, instance, msg] = m;  // date, time, agent, instance, msg
+        const [, , time, authorRaw, instance, rawMsg] = m;  // date, time, agent, instance, msg
         const author = authorRaw.trim() + (instance ? `#${instance}` : '');
-        const c = colorFor(author);
+        const { text: msg, unverified } = stripUnverifiedMarker(rawMsg);
+        if (unverified) warnedUnverified.add(author);
+        const c = unverified ? DIM : colorFor(author);
+        const authorLabel = unverified ? `${author} ?` : author;
         const cols = process.stdout.columns || 80;
-        const prefixLen = time.length + 1 + author.length + 2;
+        const prefixLen = time.length + 1 + authorLabel.length + 2;
         const maxMsg = Math.max(20, cols - prefixLen);
         const wrapped = highlightLinks(wordWrap(msg, maxMsg, ' '.repeat(prefixLen)));
         if (lastAuthor !== null && lastAuthor !== author) process.stdout.write('\n');
         lastAuthor = author;
-        process.stdout.write(`${DIM}${time}${RESET} ${c}${author}${RESET}  ${wrapped}\n`);
+        process.stdout.write(`${DIM}${time}${RESET} ${c}${authorLabel}${RESET}  ${wrapped}\n`);
       }
       process.stdout.write(`${DIM}── live ─────────────────────────────────────────${RESET}\n\n`);
       lastAuthor = null;
@@ -156,23 +183,38 @@ function highlightLinks(text) {
 function printLine(line) {
   const m = line.match(FLAT_RE);
   if (m) {
-    const [, , time, authorRaw, instance, msg] = m;  // date, time, agent, instance, msg
+    const [, , time, authorRaw, instance, rawMsg] = m;  // date, time, agent, instance, msg
     const base = authorRaw.trim();
     const author = base + (instance ? `#${instance}` : '');
-    if (base === agent) { lastAuthor = author; return; } // suppress our own echo
-    const c = colorFor(author);
+    // Compare the full instance-qualified name — comparing `base` alone would
+    // make a 2nd concurrent instance of the same agent (SPEC §2) suppress the
+    // 1st instance's real messages as if they were its own echo.
+    if (author === displayName) { lastAuthor = author; return; } // suppress our own echo
+    const { text: msg, unverified } = stripUnverifiedMarker(rawMsg);
+    const c = unverified ? DIM : colorFor(author);
+    const authorLabel = unverified ? `${author} ?` : author;
     const cols = process.stdout.columns || 80;
     // Blank line between speaker changes for readability.
     const sep = (lastAuthor !== null && lastAuthor !== author) ? '\n' : '';
     lastAuthor = author;
+    // SPEC_identity-verification §3 owner UX — flag a not-yet-approved
+    // unverified author once per TUI session, not once per message.
+    if (unverified && !warnedUnverified.has(author) && !isApprovedUnverified(filePath, base)) {
+      warnedUnverified.add(author);
+      readline.cursorTo(process.stdout, 0);
+      readline.clearLine(process.stdout, 0);
+      process.stdout.write(
+        `${sep}⚠️  ${author} wants to join as an unverified identity — /approve ${base} or /deny ${base}\n`
+      );
+    }
     // Word-wrap long messages at terminal width (prefix = "HH:MM Author  ").
-    const prefixLen = time.length + 1 + author.length + 2;
+    const prefixLen = time.length + 1 + authorLabel.length + 2;
     const maxMsg = Math.max(20, cols - prefixLen);
     const wrapped = highlightLinks(wordWrap(msg, maxMsg, ' '.repeat(prefixLen)));
     // Clear current input line, print message, restore prompt.
     readline.cursorTo(process.stdout, 0);
     readline.clearLine(process.stdout, 0);
-    process.stdout.write(`${sep}${DIM}${time}${RESET} ${c}${author}${RESET}  ${wrapped}\n`);
+    process.stdout.write(`${sep}${DIM}${time}${RESET} ${c}${authorLabel}${RESET}  ${wrapped}\n`);
     rl.prompt(true);
   }
 }
@@ -289,7 +331,7 @@ rl.on('line', async (raw) => {
       return;
     }
     setAllowed(filePath, invitee, true);
-    await appendLines(filePath, agent, [`/invite ${invitee} — joined the chat`]);
+    await appendLines(filePath, displayName, [`/invite ${invitee} — joined the chat`], { verified });
 
     const session = findSessionByPath(filePath);
     if (session?.smalltoakUrl && session?.chatId) {
@@ -311,6 +353,27 @@ rl.on('line', async (raw) => {
       process.stdout.write(composeLocalInvite({ invitee, filePath }));
       process.stdout.write('\n');
     }
+    rl.prompt();
+    return;
+  }
+
+  // ── /approve <name> / /deny <name> ──────────────────────────────────
+  // Owner UX for SPEC_identity-verification §3: manually approve or revoke
+  // an unverified (--as) name's participation, independent of any external
+  // TREEBIRD_CHAT_APPROVE_HOOK. Does not touch ACL membership (`allowed`) —
+  // only the approved_unverified marker layered on top of it.
+  if (text.startsWith('/approve ') || text.startsWith('/deny ')) {
+    const isApprove = text.startsWith('/approve ');
+    const target = text.slice(isApprove ? 9 : 6).trim();
+    if (!target || !isValidAgentName(target)) {
+      process.stdout.write(`${DIM}usage: /approve <name> or /deny <name>${RESET}\n`);
+      rl.prompt();
+      return;
+    }
+    setApprovedUnverified(filePath, target, isApprove);
+    process.stdout.write(
+      `${DIM}${isApprove ? '✅ approved' : '🚫 revoked approval for'} unverified identity "${target}"${RESET}\n`
+    );
     rl.prompt();
     return;
   }
@@ -342,7 +405,7 @@ rl.on('line', async (raw) => {
     if (!resolved.proposed && existsSync(subFile)) {
       // Sub already exists — post a join pointer and tell user how to open it
       const label = basename(subFile, extname(subFile));
-      await appendLines(filePath, agent, [`joining [[${label}]]`]);
+      await appendLines(filePath, displayName, [`joining [[${label}]]`], { verified });
       printBox([
         `${BOLD}sub-chat${RESET}: ${DIM}${subFile}${RESET}`,
         `${DIM}already exists — open in a new pane:${RESET}`,
@@ -384,7 +447,7 @@ rl.on('line', async (raw) => {
 
     // Post pointer into parent chat
     const subLabel = basename(subFile, extname(subFile));
-    await appendLines(filePath, agent, [`/sub ${topic} → [[${subLabel}]]`]);
+    await appendLines(filePath, displayName, [`/sub ${topic} → [[${subLabel}]]`], { verified });
 
     // P2.1: auto-stage the new sub + ACL. No commit, no push — explicit user
     // action. Best-effort: failure does not abort sub creation.
@@ -499,7 +562,7 @@ rl.on('line', async (raw) => {
     return;
   }
 
-  await appendLines(filePath, agent, lines);
+  await appendLines(filePath, displayName, lines, { verified });
   rl.prompt();
  } catch (err) {
   if (err instanceof MessageTooLongError) {
